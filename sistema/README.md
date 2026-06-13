@@ -86,6 +86,12 @@ python scripts/importar_todos.py
 python scripts/verificar_cadastro.py            # so relata o que falta
 python scripts/verificar_cadastro.py --baixar   # baixa SO os que faltam
 
+# DETECTAR fluxos que mudaram (sem re-importar tudo; usa so getbonddetails,
+# por rodizio em lotes -> poucas chamadas por execucao)
+python scripts/verificar_mudancas.py            # checa um lote e relata mudancas
+python scripts/verificar_mudancas.py --atualizar # re-importa SO os que mudaram
+python scripts/verificar_mudancas.py --todos    # varre tudo de uma vez (pesado)
+
 # corrigir classificacao IPCA/CDI sem API (apos importacao em massa)
 python scripts/corrigir_csvs.py
 
