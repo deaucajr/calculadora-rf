@@ -51,10 +51,22 @@ def atualizar_cdi():
     log(f"  _cdi.csv: {len(out)} dias (ultimo {rows[-1]['date']})")
 
 
+def atualizar_curva_di():
+    """Baixa a curva DI x Pre da B3 (ultimos pregoes) -> fluxos/_curva_di.csv."""
+    from src.sync_b3_curve import sync_curva_di
+    from importar_todos import log
+    try:
+        novas = sync_curva_di()
+        log(f"  _curva_di.csv: {novas} datas novas")
+    except Exception as e:
+        log(f"  curva DI: {e}")
+
+
 def run():
     from importar_todos import carregar_universo, main as importar_main, log
     log("=== ROTINA DIARIA ===")
     atualizar_cdi()
+    atualizar_curva_di()
     # 1. refresh do universo (detecta novos ativos)
     antes = {}
     try:

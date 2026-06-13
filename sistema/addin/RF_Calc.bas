@@ -26,6 +26,7 @@ Private Const SEP As String = vbTab
 Private gAtivos As Object   ' ticker -> Array(hdr, flows2D, vDates, vVals, cdi)  (cache lazy)
 Private gFeriados As Object ' CLng(date) -> True
 Private gCdi As Object      ' data_iso -> CDI diario (fracao); p/ DI-PERC (% do CDI)
+Private gCurva As Object    ' data_iso -> curva DI B3 2D(n,2): [du, taxa_aa]  (_curva_di.csv)
 
 ' ================= INFRA / LAZY =================
 
@@ -38,6 +39,7 @@ Public Sub RF_ATUALIZAR()
     Set gAtivos = Nothing
     Set gFeriados = Nothing
     Set gCdi = Nothing
+    Set gCurva = Nothing
     RegistrarFuncoes
     MsgBox "Cache limpo. Os ativos serao recarregados sob demanda de:" & vbCrLf & FLUXOS_DIR, _
            vbInformation, "RF Calc"
@@ -208,6 +210,172 @@ Private Function MelhorChaveCdi(cdi As Object, dCalc As Date) As String
     If best <> "" Then MelhorChaveCdi = best Else MelhorChaveCdi = menor
 End Function
 
+' ============== CURVA DI x PRE (B3) — repricing de CDI em qualquer data ==============
+
+' Carrega _curva_di.csv -> gCurva(data_iso) = 2D(n,2): [du, taxa_aa], ordenado por du.
+Private Sub GaranteCurva()
+    If Not gCurva Is Nothing Then Exit Sub
+    Set gCurva = CreateObject("Scripting.Dictionary")
+    Dim tmp As Object: Set tmp = CreateObject("Scripting.Dictionary")  ' data -> Collection(Array(du,taxa))
+    Dim fnum As Integer, linha As String, p() As String
+    On Error GoTo Fim
+    fnum = FreeFile
+    Open FLUXOS_DIR & "_curva_di.csv" For Input As #fnum
+    Do While Not EOF(fnum)
+        Line Input #fnum, linha
+        p = Split(linha, SEP)
+        If UBound(p) >= 2 Then
+            If Not tmp.Exists(p(0)) Then tmp.Add p(0), New Collection
+            tmp(p(0)).Add Array(CLng(Val(p(1))), Val(p(2)))
+        End If
+    Loop
+    Close #fnum
+    Dim k As Variant, col As Collection, i As Long, arr() As Variant, it As Variant
+    For Each k In tmp.Keys
+        Set col = tmp(k)
+        ReDim arr(1 To col.Count, 1 To 2)
+        For i = 1 To col.Count
+            it = col(i): arr(i, 1) = it(0): arr(i, 2) = it(1)
+        Next i
+        gCurva(CStr(k)) = arr   ' _curva_di.csv ja vem ordenado por du
+    Next k
+    Exit Sub
+Fim:
+    On Error Resume Next
+    Close #fnum
+End Sub
+
+' Fator DI (crescimento, 100% CDI) ate du=x; interp log-linear no fator de desconto.
+Private Function FdDi(curva As Variant, x As Double) As Double
+    Dim n As Long: n = UBound(curva, 1)
+    If x <= curva(1, 1) Then FdDi = (1 + curva(1, 2) / 100) ^ (x / 252#): Exit Function
+    If x >= curva(n, 1) Then FdDi = (1 + curva(n, 2) / 100) ^ (x / 252#): Exit Function
+    Dim lo As Long, hi As Long, mid As Long
+    lo = 1: hi = n
+    Do While hi - lo > 1                      ' busca binaria do segmento
+        mid = (lo + hi) \ 2
+        If curva(mid, 1) <= x Then lo = mid Else hi = mid
+    Loop
+    Dim a As Double, b As Double, fa As Double, fb As Double
+    a = curva(lo, 1): b = curva(hi, 1)
+    If a = x Then FdDi = (1 + curva(lo, 2) / 100) ^ (x / 252#): Exit Function
+    If b = x Then FdDi = (1 + curva(hi, 2) / 100) ^ (x / 252#): Exit Function
+    fa = (1 + curva(lo, 2) / 100) ^ (a / 252#)
+    fb = (1 + curva(hi, 2) / 100) ^ (b / 252#)
+    FdDi = fa * (fb / fa) ^ ((x - a) / (b - a))
+End Function
+
+' Fator a pct% do CDI ate du=x: reconstroi CDI forward da curva e reaplica pct.
+Private Function FdPct(curva As Variant, x As Double, pct As Double) As Double
+    If x <= 0 Then FdPct = 1: Exit Function
+    Dim n As Long: n = UBound(curva, 1)
+    Dim fd As Double: fd = 1
+    Dim prev As Long: prev = 0
+    Dim lnPrev As Double: lnPrev = 0
+    Dim i As Long, v As Long, lnV As Double, dseg As Long, cdid As Double
+    For i = 1 To n
+        v = curva(i, 1)
+        If v >= x Then Exit For
+        lnV = Log(FdDi(curva, CDbl(v)))
+        dseg = v - prev
+        If dseg > 0 Then
+            cdid = Exp((lnV - lnPrev) / dseg) - 1
+            fd = fd * (1 + pct / 100 * cdid) ^ dseg
+            prev = v: lnPrev = lnV
+        End If
+    Next i
+    Dim lnX As Double: lnX = Log(FdDi(curva, x))
+    Dim ds As Long: ds = CLng(x) - prev
+    If ds > 0 Then
+        cdid = Exp((lnX - lnPrev) / ds) - 1
+        fd = fd * (1 + pct / 100 * cdid) ^ ds
+    End If
+    FdPct = fd
+End Function
+
+' Constroi bloco sintetico de fluxos CDI na data dCalc, ancorado no bloco de D0
+' (DATA_FLUXO, ja validado) e movido pela curva da B3. Mesma forma de cf0(i,1..4).
+' d0 = data-ancora (DATA_FLUXO do bloco cf0). O du de cada evento na data dCalc e
+' obtido do du gravado +/- o delta de dias uteis entre dCalc e d0 (convenção do
+' bloco), evitando divergencia de contagem absoluta. Em dCalc=d0 -> duD=du0 (exato).
+Private Function BlocoSintetico(cf0 As Variant, y0 As Double, dCalc As Date, d0 As Date, _
+                                curva0 As Variant, curvaD As Variant) As Variant
+    Dim n As Long: n = UBound(cf0, 1)
+    Dim tmp() As Variant: ReDim tmp(1 To n, 1 To 4)
+    Dim cnt As Long: cnt = 0
+    Dim desloc As Long                       ' du a somar ao du0 (>0 se dCalc antes de d0)
+    If dCalc >= d0 Then desloc = -ContaDU(d0, dCalc) Else desloc = ContaDU(dCalc, d0)
+    Dim i As Long, ev As Date, du0 As Long, duD As Long, rv As Double, rp As Double, r As Double
+    For i = 1 To n
+        ev = CDate(cf0(i, 1))
+        du0 = cf0(i, 4)
+        duD = du0 + desloc
+        If duD > 0 Then
+            cnt = cnt + 1
+            tmp(cnt, 1) = ev: tmp(cnt, 4) = duD
+            If y0 >= 50 Then                                   ' DI-PERC (% do CDI)
+                rv = FdDi(curvaD, CDbl(duD)) / FdDi(curva0, CDbl(du0))
+                rp = FdPct(curvaD, CDbl(duD), y0) / FdPct(curva0, CDbl(du0), y0)
+                tmp(cnt, 2) = cf0(i, 2) * rv
+                tmp(cnt, 3) = cf0(i, 3) * rp
+            Else                                               ' DI-SPREAD (CDI+)
+                r = (FdDi(curva0, CDbl(du0)) / FdDi(curvaD, CDbl(duD))) _
+                    * (1 + y0 / 100) ^ ((du0 - duD) / 252#)
+                tmp(cnt, 2) = cf0(i, 2)
+                tmp(cnt, 3) = cf0(i, 3) * r
+            End If
+        End If
+    Next i
+    If cnt = 0 Then Exit Function
+    Dim outc() As Variant: ReDim outc(1 To cnt, 1 To 4)
+    Dim j As Long
+    For i = 1 To cnt
+        For j = 1 To 4
+            outc(i, j) = tmp(i, j)
+        Next j
+    Next i
+    OrdenaCf outc                                              ' garante ordem por du
+    BlocoSintetico = outc
+End Function
+
+Private Sub OrdenaCf(ByRef cf As Variant)
+    Dim i As Long, j As Long, k As Long, tmp As Variant
+    For i = LBound(cf, 1) To UBound(cf, 1) - 1
+        For j = i + 1 To UBound(cf, 1)
+            If cf(j, 4) < cf(i, 4) Then
+                For k = 1 To 4
+                    tmp = cf(i, k): cf(i, k) = cf(j, k): cf(j, k) = tmp
+                Next k
+            End If
+        Next j
+    Next i
+End Sub
+
+' Obtem o bloco de fluxos CDI para dCalc:
+'   1) bloco real, se a data foi importada;
+'   2) bloco sintetico via curva B3, se ha curva p/ dCalc e p/ DATA_FLUXO;
+'   3) fallback: bloco mais recente <= dCalc.
+' Retorna False se nao ha nenhum bloco.
+Private Function ObtemCfCdi(hdr As Object, cdi As Object, dCalc As Date, ByRef cf As Variant) As Boolean
+    If cdi Is Nothing Then Exit Function
+    Dim dc As String: dc = IsoStr(dCalc)
+    If cdi.Exists(dc) Then cf = cdi(dc): ObtemCfCdi = True: Exit Function
+
+    Dim d0s As String: d0s = CStr(hdr("DATA_FLUXO"))
+    If Not cdi.Exists(d0s) Then d0s = MelhorChaveCdi(cdi, dCalc)   ' ancora alternativa
+    GaranteCurva
+    If Not gCurva Is Nothing And d0s <> "" Then
+        If gCurva.Exists(dc) And gCurva.Exists(d0s) And cdi.Exists(d0s) Then
+            Dim syn As Variant
+            syn = BlocoSintetico(cdi(d0s), Val(CStr(hdr("TAXA_REF"))), dCalc, ParseISO(d0s), gCurva(d0s), gCurva(dc))
+            If Not IsEmpty(syn) Then cf = syn: ObtemCfCdi = True: Exit Function
+        End If
+    End If
+
+    Dim k As String: k = MelhorChaveCdi(cdi, dCalc)               ' fallback
+    If k <> "" Then cf = cdi(k): ObtemCfCdi = True
+End Function
+
 Private Function PegaAtivo(ticker As String, ByRef hdr As Object, ByRef fl As Variant, _
                            ByRef vDates As Variant, ByRef vVals As Variant, _
                            ByRef cdi As Object) As Boolean
@@ -253,9 +421,10 @@ Private Function EhDiaUtil(d As Date) As Boolean
 End Function
 
 Private Function ContaDU(d0 As Date, d1 As Date) As Long
-    Dim d As Date, n As Long
-    If d1 <= d0 Then Exit Function
-    For d = d0 + 1 To d1
+    Dim a As Date, b As Date, d As Date, n As Long
+    a = Int(d0): b = Int(d1)        ' normaliza p/ dia cheio (ignora fracao de hora)
+    If b <= a Then Exit Function
+    For d = a + 1 To b
         If EhDiaUtil(d) Then n = n + 1
     Next d
     ContaDU = n
@@ -337,10 +506,8 @@ Private Sub CalcCore(hdr As Object, fl As Variant, vDates As Variant, vVals As V
     Dim i As Long, du As Long
 
     If UCase(CStr(hdr("INDEXADOR"))) = "CDI" Then
-        If cdi Is Nothing Then ehErro = True: Exit Sub
-        Dim dc As String: dc = MelhorChaveCdi(cdi, dCalc)   ' bloco mais recente <= data
-        If dc = "" Then ehErro = True: Exit Sub             ' nenhum bloco importado
-        Dim cf As Variant: cf = cdi(dc)
+        Dim cf As Variant
+        If Not ObtemCfCdi(hdr, cdi, dCalc, cf) Then ehErro = True: Exit Sub
         Dim y0 As Double: y0 = Val(CStr(hdr("TAXA_REF")))
         Dim pvc() As Double: PvCdi cf, y0, taxa, pvc
         For i = 1 To UBound(cf, 1)
@@ -432,7 +599,8 @@ Private Sub DurPU(ticker As String, taxa As Double, d As Date, _
     Dim somaPV As Double, somaTPV As Double, i As Long, t As Double, du As Long, pvi As Double
     If UCase(CStr(hdr("INDEXADOR"))) = "CDI" Then
         Dim y0 As Double: y0 = Val(CStr(hdr("TAXA_REF")))
-        Dim cf As Variant: cf = cdi(MelhorChaveCdi(cdi, d))
+        Dim cf As Variant
+        If Not ObtemCfCdi(hdr, cdi, d, cf) Then ehErro = True: Exit Sub
         Dim pvc() As Double: PvCdi cf, y0, taxa, pvc
         For i = 1 To UBound(cf, 1)
             t = cf(i, 4) / 252#
@@ -471,9 +639,8 @@ Public Function RF_FLUXO(ticker As String, taxa As Double, dataCalc As Variant) 
 
     If UCase(CStr(hdr("INDEXADOR"))) = "CDI" Then
         If cdi Is Nothing Then RF_FLUXO = CVErr(xlErrNum): Exit Function
-        Dim dc As String: dc = MelhorChaveCdi(cdi, d)
-        If dc = "" Then RF_FLUXO = CVErr(xlErrNum): Exit Function
-        Dim cf As Variant: cf = cdi(dc)
+        Dim cf As Variant
+        If Not ObtemCfCdi(hdr, cdi, d, cf) Then RF_FLUXO = CVErr(xlErrNum): Exit Function
         Dim y0 As Double: y0 = Val(CStr(hdr("TAXA_REF")))
         Dim pvc() As Double: PvCdi cf, y0, taxa, pvc
         Dim nc As Long: nc = UBound(cf, 1)
