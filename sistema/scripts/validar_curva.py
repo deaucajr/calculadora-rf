@@ -14,10 +14,13 @@ Tipos:
 """
 import glob
 import math
+import sys
 from datetime import date, timedelta
 from pathlib import Path
 
-FLUXOS = Path(__file__).resolve().parent.parent / "data" / "fluxos"
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+from src.paths import fluxos_dir
+FLUXOS = fluxos_dir()
 
 # ---------- calendario / dias uteis (espelha ContaDU do VBA) ----------
 _FER = set()

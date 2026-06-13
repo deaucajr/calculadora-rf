@@ -192,8 +192,11 @@ def main():
     print("SETUP CONCLUIDO.")
     if addin_ok:
         print(">> Reabra o Excel: as funcoes RF_* carregam sozinhas.")
-    print("   Dados publicos (feriados, CDI, curva B3) ja estao em data/fluxos/.")
-    print("   Para atualizar tudo no dia a dia:  python scripts/rotina_diaria.py")
+    print("   Dados publicos (feriados, CDI, curva B3) ja estao na pasta de fluxos.")
+    print("   Conferir se voce tem todo o universo da B3 no PC:")
+    print("     python scripts/verificar_cadastro.py            (relata o que falta)")
+    print("     python scripts/verificar_cadastro.py --baixar   (baixa os que faltam)")
+    print("   Atualizar tudo no dia a dia:  python scripts/rotina_diaria.py")
     print("=" * 60)
 
 

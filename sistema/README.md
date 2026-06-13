@@ -17,9 +17,22 @@ Validado contra a API: **80/80** (5 papéis de cada tipo × 4 datas) batendo at�
 ├── docs/        # documentacao (arquitetura, referencia das formulas)
 ├── data/        # GERADO (gitignored): rf.db, fluxos/*.csv, _cdi.csv, _feriados.csv
 ├── _legado/     # versoes antigas (dashboard, CLI, xlwings) — referencia historica
-├── config.json  # GITIGNORED — credenciais da API (copie de config.example.json)
+├── config.json  # GITIGNORED — ajustes (base_url, BACEN, fluxos_dir, ...)
+├── credenciais.txt # GITIGNORED — login/senha da CALC (so p/ importar fluxos)
 └── requirements.txt
 ```
+
+### Onde ficam os CSV de fluxo (`fluxos_dir`)
+
+Por padrão, em `data/fluxos/`. Para apontar para **outra pasta sua** (inclusive na
+nuvem, ex. OneDrive/Dropbox), defina `"fluxos_dir"` no `config.json` — vale para os
+scripts **e** para o add-in (rode `build_xlam.py`/`setup.py` de novo após mudar):
+
+```json
+{ "fluxos_dir": "C:/Users/voce/OneDrive/RF/fluxos" }
+```
+Em branco (`""`) usa o padrão `data/fluxos/`. Assim, quem clonar o código aponta para
+a própria pasta sem editar nada no código.
 
 ## Instalação — comando único
 
@@ -68,6 +81,10 @@ python scripts/importar_fluxos.py EGIEA6 2026-06-12
 
 # importar TODOS da B3 (deb+cri+cra; resume + delays)
 python scripts/importar_todos.py
+
+# CONFERIR se todo o universo da CALC/B3 esta cadastrado no seu PC
+python scripts/verificar_cadastro.py            # so relata o que falta
+python scripts/verificar_cadastro.py --baixar   # baixa SO os que faltam
 
 # corrigir classificacao IPCA/CDI sem API (apos importacao em massa)
 python scripts/corrigir_csvs.py

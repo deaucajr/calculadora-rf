@@ -17,8 +17,13 @@ import win32com.client as win32
 
 BASE = Path(__file__).resolve().parent
 BAS = BASE / "RF_Calc.bas"
-# pasta local dos CSV de fluxo, com barra final (independe da maquina)
-FLUXOS_DIR_LOCAL = str(BASE.parent / "data" / "fluxos") + os.sep
+sys.path.insert(0, str(BASE.parent))           # p/ importar src.paths
+# pasta dos CSV de fluxo desta maquina (config 'fluxos_dir' ou data/fluxos), c/ barra final
+try:
+    from src.paths import fluxos_dir
+    FLUXOS_DIR_LOCAL = str(fluxos_dir()) + os.sep
+except Exception:
+    FLUXOS_DIR_LOCAL = str(BASE.parent / "data" / "fluxos") + os.sep
 
 
 def _bas_com_caminho_local() -> Path:

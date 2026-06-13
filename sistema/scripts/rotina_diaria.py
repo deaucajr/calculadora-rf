@@ -47,7 +47,8 @@ def atualizar_cdi():
     with get_conn() as c:
         rows = c.execute("SELECT date, rate_annual FROM cdi_daily ORDER BY date").fetchall()
     out = [f'{r["date"]}\t{float(r["rate_annual"]) / 100:.10f}' for r in rows]
-    (ROOT / "data" / "fluxos" / "_cdi.csv").write_text("\n".join(out), encoding="utf-8")
+    from src.paths import fluxos_dir
+    (fluxos_dir() / "_cdi.csv").write_text("\n".join(out), encoding="utf-8")
     log(f"  _cdi.csv: {len(out)} dias (ultimo {rows[-1]['date']})")
 
 

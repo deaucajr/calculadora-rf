@@ -5,6 +5,7 @@
     "senha": "SUA_SENHA_AQUI"
   },
   "data_dir": "data",
+  "fluxos_dir": "",
   "token_cache_minutes": 55,
   "bacen": {
     "cdi_series": 12,

@@ -16,7 +16,9 @@ import sys
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
-FLUXOS_DIR = ROOT / "data" / "fluxos"
+sys.path.insert(0, str(ROOT))
+from src.paths import fluxos_dir
+FLUXOS_DIR = fluxos_dir()
 SEP = "\t"
 TOL_REL = 0.005   # 0,5%: separa IPCA (==0) de CDI (>>)
 

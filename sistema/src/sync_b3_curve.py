@@ -28,7 +28,8 @@ HEADERS = {
     "Accept": "application/json",
     "Referer": "https://sistemaswebb3-derivativos.b3.com.br/referenceRatesPage/all?language=pt-br",
 }
-FLUXOS_DIR = Path(__file__).resolve().parent.parent / "data" / "fluxos"
+from .paths import fluxos_dir
+FLUXOS_DIR = fluxos_dir()
 CURVA_CSV = FLUXOS_DIR / "_curva_di.csv"
 
 
