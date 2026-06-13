@@ -169,6 +169,7 @@ def main():
     importar = "--importar" in sys.argv
     print("RF_Calc — SETUP UNICO" + ("  (com import de ativos)" if importar else ""))
     print("Pasta:", BASE)
+    (BASE / "data" / "fluxos").mkdir(parents=True, exist_ok=True)  # clone limpo
     instalar_dependencias()
     criar_banco()
     gerar_feriados()
