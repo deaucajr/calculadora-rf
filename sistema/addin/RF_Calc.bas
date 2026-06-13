@@ -191,6 +191,23 @@ Private Function IsoStr(d As Date) As String
     IsoStr = Format(d, "YYYY-MM-DD")
 End Function
 
+' Escolhe a melhor data de bloco CDI para dCalc: a data exata se existir;
+' senao a mais recente <= dCalc; senao (dCalc anterior a tudo) a mais antiga.
+' Retorna "" se nao ha blocos. As chaves "YYYY-MM-DD" ordenam cronologicamente.
+Private Function MelhorChaveCdi(cdi As Object, dCalc As Date) As String
+    If cdi Is Nothing Then Exit Function
+    Dim alvo As String: alvo = IsoStr(dCalc)
+    If cdi.Exists(alvo) Then MelhorChaveCdi = alvo: Exit Function
+    Dim k As Variant, best As String, menor As String
+    For Each k In cdi.Keys
+        If CStr(k) <= alvo Then
+            If best = "" Or CStr(k) > best Then best = CStr(k)
+        End If
+        If menor = "" Or CStr(k) < menor Then menor = CStr(k)
+    Next k
+    If best <> "" Then MelhorChaveCdi = best Else MelhorChaveCdi = menor
+End Function
+
 Private Function PegaAtivo(ticker As String, ByRef hdr As Object, ByRef fl As Variant, _
                            ByRef vDates As Variant, ByRef vVals As Variant, _
                            ByRef cdi As Object) As Boolean
@@ -320,9 +337,9 @@ Private Sub CalcCore(hdr As Object, fl As Variant, vDates As Variant, vVals As V
     Dim i As Long, du As Long
 
     If UCase(CStr(hdr("INDEXADOR"))) = "CDI" Then
-        Dim dc As String: dc = IsoStr(dCalc)
         If cdi Is Nothing Then ehErro = True: Exit Sub
-        If Not cdi.Exists(dc) Then ehErro = True: Exit Sub   ' data nao importada
+        Dim dc As String: dc = MelhorChaveCdi(cdi, dCalc)   ' bloco mais recente <= data
+        If dc = "" Then ehErro = True: Exit Sub             ' nenhum bloco importado
         Dim cf As Variant: cf = cdi(dc)
         Dim y0 As Double: y0 = Val(CStr(hdr("TAXA_REF")))
         Dim pvc() As Double: PvCdi cf, y0, taxa, pvc
@@ -415,7 +432,7 @@ Private Sub DurPU(ticker As String, taxa As Double, d As Date, _
     Dim somaPV As Double, somaTPV As Double, i As Long, t As Double, du As Long, pvi As Double
     If UCase(CStr(hdr("INDEXADOR"))) = "CDI" Then
         Dim y0 As Double: y0 = Val(CStr(hdr("TAXA_REF")))
-        Dim cf As Variant: cf = cdi(IsoStr(d))
+        Dim cf As Variant: cf = cdi(MelhorChaveCdi(cdi, d))
         Dim pvc() As Double: PvCdi cf, y0, taxa, pvc
         For i = 1 To UBound(cf, 1)
             t = cf(i, 4) / 252#
@@ -453,9 +470,9 @@ Public Function RF_FLUXO(ticker As String, taxa As Double, dataCalc As Variant) 
     Dim i As Long, rr As Long, du As Long, vf As Double, pvi As Double
 
     If UCase(CStr(hdr("INDEXADOR"))) = "CDI" Then
-        Dim dc As String: dc = IsoStr(d)
         If cdi Is Nothing Then RF_FLUXO = CVErr(xlErrNum): Exit Function
-        If Not cdi.Exists(dc) Then RF_FLUXO = CVErr(xlErrNum): Exit Function
+        Dim dc As String: dc = MelhorChaveCdi(cdi, d)
+        If dc = "" Then RF_FLUXO = CVErr(xlErrNum): Exit Function
         Dim cf As Variant: cf = cdi(dc)
         Dim y0 As Double: y0 = Val(CStr(hdr("TAXA_REF")))
         Dim pvc() As Double: PvCdi cf, y0, taxa, pvc
