@@ -7,16 +7,11 @@ import time
 from datetime import datetime, date
 from pathlib import Path
 
-from .api_client import get_bond_details
+from .api_client import get_bond_details, load_config as _load_config
 from .db import get_conn
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 CONFIG_PATH = BASE_DIR / "config.json"
-
-
-def _load_config() -> dict:
-    with open(CONFIG_PATH) as f:
-        return json.load(f)
 
 
 def save_bond(data: dict):

@@ -140,20 +140,30 @@ def construir_addin():
     return False
 
 
+def _tem_credenciais():
+    """True se ha login/senha (via credenciais.txt ou config.json)."""
+    try:
+        from src.api_client import load_config
+        api = load_config().get("api", {})
+        login = str(api.get("login", ""))
+        return bool(login) and "SEU_LOGIN" not in login
+    except Exception:
+        return False
+
+
 def importar_fluxos_ativos(importar):
     passo(7, "Fluxos dos ativos (API calculadorarendafixa)")
-    cfg = BASE / "config.json"
     if not importar:
         print(PULAR, "import de ativos nao solicitado (evita carga na API).")
         print("       Os dados publicos (feriados, CDI, curva B3) ja bastam para o add-in.")
         print("       Para baixar os fluxos de cada ativo, rode UMA vez:")
         print("         python setup.py --importar      (ou: python scripts/importar_todos.py)")
         return None
-    if not cfg.exists():
-        print(PULAR, "config.json nao encontrado.")
-        print("       1) copie config.example.json para config.json")
-        print("       2) preencha login/senha da API calculadorarendafixa")
-        print("       3) rode:  python setup.py --importar")
+    if not _tem_credenciais():
+        print(PULAR, "sem credenciais da CALC.")
+        print("       1) renomeie  credenciais.txt.exemplo  ->  credenciais.txt")
+        print("       2) preencha login e senha nesse arquivo (fica fora do git)")
+        print("       3) rode de novo:  python setup.py --importar")
         return None
     try:
         from importar_todos import main as importar_main

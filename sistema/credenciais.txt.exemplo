@@ -1,0 +1,14 @@
+# CREDENCIAIS DA API calculadorarendafixa.com.br (CALC)
+#
+# Usadas SOMENTE para baixar os fluxos dos ativos (passo opcional --importar).
+# A curva da B3, o CDI e os feriados sao PUBLICOS e nao precisam de login.
+#
+# COMO USAR:
+#   1) Renomeie este arquivo para:  credenciais.txt
+#   2) Preencha login e senha abaixo (substitua o texto depois do = ).
+#   3) Salve. Pronto — este arquivo NAO vai para o git (.gitignore).
+#
+# Preenche so estas duas linhas:
+
+login=SEU_LOGIN_AQUI
+senha=SUA_SENHA_AQUI

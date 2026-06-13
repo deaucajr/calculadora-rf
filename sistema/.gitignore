@@ -1,5 +1,6 @@
 # Credenciais (NUNCA versionar - contem login/senha da API)
 config.json
+credenciais.txt
 
 # Dados gerados (regeneraveis; nao versionar - exceto o README)
 data/*

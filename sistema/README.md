@@ -36,19 +36,24 @@ feriados, baixa o **CDI** (BACEN) e a **curva DI×Pré da B3** (`data/fluxos/_cu
 e constrói/instala o add-in `RF_Calc.xlam`. Reabra o Excel e use as funções `RF_*`.
 
 Os dados públicos (feriados, CDI, curva B3) já bastam para o add-in calcular. Para
-baixar também os **fluxos de cada ativo** (precisa de `config.json` com login/senha da
-CALC), rode uma vez:
+baixar também os **fluxos de cada ativo** (precisa de login/senha da CALC), coloque
+suas credenciais num txt simples e rode uma vez:
 
 ```powershell
-copy config.example.json config.json   # edite com seu login/senha
+ren credenciais.txt.exemplo credenciais.txt   # depois edite login/senha nele
 python setup.py --importar
 ```
+
+> O `credenciais.txt` é lido na hora do import e **não vai para o git** (está no
+> `.gitignore`). Ele tem prioridade sobre o `config.json`, então o login/senha fica
+> só nesse txt — não precisa colocar credenciais no `config.json`.
 
 <details><summary>Instalação manual (passo a passo)</summary>
 
 ```powershell
 pip install -r requirements.txt
-copy config.example.json config.json   # edite com seu login/senha da CALC
+copy config.example.json config.json               # ajustes (base_url, BACEN, ...)
+ren credenciais.txt.exemplo credenciais.txt        # login/senha da CALC (so p/ import)
 python scripts/importar_fluxos.py --feriados      # gera data/fluxos/_feriados.csv
 python -m src.sync_b3_curve                        # baixa a curva DI x Pre da B3
 python addin/build_xlam.py                         # gera o .xlam
@@ -97,5 +102,6 @@ Detalhes completos em [`docs/arquitetura.md`](docs/arquitetura.md).
 
 ## Aviso
 
-`config.json` contém credenciais — está no `.gitignore`. A pasta `data/` é regenerável
-e também não é versionada. Seja moderado no volume de chamadas à API.
+As credenciais ficam em `credenciais.txt` (login/senha da CALC) — está no `.gitignore`,
+preenchido à mão, **fora** do `config.json`. A pasta `data/` é regenerável e também não
+é versionada. Seja moderado no volume de chamadas à API.

@@ -5,6 +5,7 @@ from pathlib import Path
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 CONFIG_PATH = BASE_DIR / "config.json"
+CREDENCIAIS_TXT = BASE_DIR / "credenciais.txt"
 TOKEN_CACHE_PATH = BASE_DIR / "data" / ".token_cache.json"
 
 BASE_URL = "https://calculadorarendafixa.com.br"
@@ -12,9 +13,46 @@ BOND_API = BASE_URL + "/bond-calculator-web/api"
 BOND_FREE = BASE_URL + "/bond-calculator-web/free"
 
 
-def _load_config() -> dict:
-    with open(CONFIG_PATH) as f:
-        return json.load(f)
+def _ler_credenciais_txt() -> dict:
+    """Le login/senha de um credenciais.txt simples (linhas 'chave=valor' ou
+    'chave: valor'; ignora # e linhas vazias). Aceita login/usuario/email e
+    senha/password. Retorna {} se o arquivo nao existir."""
+    if not CREDENCIAIS_TXT.exists():
+        return {}
+    out = {}
+    for linha in CREDENCIAIS_TXT.read_text(encoding="utf-8").splitlines():
+        linha = linha.strip()
+        if not linha or linha.startswith("#"):
+            continue
+        sep = "=" if "=" in linha else (":" if ":" in linha else None)
+        if not sep:
+            continue
+        chave, valor = linha.split(sep, 1)
+        chave, valor = chave.strip().lower(), valor.strip()
+        if chave in ("login", "usuario", "usuário", "email", "e-mail", "user"):
+            out["login"] = valor
+        elif chave in ("senha", "password", "pass"):
+            out["senha"] = valor
+    return out
+
+
+def load_config() -> dict:
+    """config.json (ajustes) sobreposto pelas credenciais do credenciais.txt,
+    que tem prioridade. Assim o login/senha fica num txt fora do git, sem
+    precisar editar o config.json."""
+    cfg = {}
+    if CONFIG_PATH.exists():
+        with open(CONFIG_PATH, encoding="utf-8") as f:
+            cfg = json.load(f)
+    cfg.setdefault("api", {})
+    cred = _ler_credenciais_txt()
+    if cred:
+        cfg["api"].update(cred)        # credenciais.txt tem prioridade
+    return cfg
+
+
+def _load_config() -> dict:            # compat
+    return load_config()
 
 
 def _get_token() -> str:
