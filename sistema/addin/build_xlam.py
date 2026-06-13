@@ -7,6 +7,7 @@ modelo de objeto de projeto do VBA" habilitado (temporario).
 Uso: python excel/build_xlam.py
 """
 import os
+import re
 import sys
 import time
 import winreg
@@ -16,6 +17,21 @@ import win32com.client as win32
 
 BASE = Path(__file__).resolve().parent
 BAS = BASE / "RF_Calc.bas"
+# pasta local dos CSV de fluxo, com barra final (independe da maquina)
+FLUXOS_DIR_LOCAL = str(BASE.parent / "data" / "fluxos") + os.sep
+
+
+def _bas_com_caminho_local() -> Path:
+    """Grava um .bas temporario com a const FLUXOS_DIR apontando p/ a pasta local
+    desta maquina. Torna o add-in portavel apos clonar de outra origem."""
+    txt = BAS.read_text(encoding="utf-8", errors="replace")
+    novo = re.sub(
+        r'(Private Const FLUXOS_DIR As String = _\s*\r?\n\s*")[^"]*(")',
+        lambda m: m.group(1) + FLUXOS_DIR_LOCAL + m.group(2),
+        txt, count=1)
+    tmp = BASE / "_RF_Calc_build.bas"
+    tmp.write_text(novo, encoding="utf-8")
+    return tmp
 XLAM = Path(os.environ["APPDATA"]) / "Microsoft" / "AddIns" / "RF_Calc.xlam"
 OLD_XLAM = Path(os.environ["APPDATA"]) / "Microsoft" / "AddIns" / "DEB_Calc.xlam"
 MODULE_NAME = "RF_Calc"
@@ -60,7 +76,12 @@ def main():
         for comp in list(vbproj.VBComponents):
             if comp.Name == MODULE_NAME:
                 vbproj.VBComponents.Remove(comp)
-        vbproj.VBComponents.Import(str(BAS))
+        bas_local = _bas_com_caminho_local()
+        try:
+            vbproj.VBComponents.Import(str(bas_local))
+            print(f"FLUXOS_DIR ajustado p/ {FLUXOS_DIR_LOCAL}")
+        finally:
+            bas_local.unlink(missing_ok=True)
 
         # Title/descricao do add-in (evita entrada "sem titulo" no dialogo)
         try:

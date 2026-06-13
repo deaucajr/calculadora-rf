@@ -21,13 +21,39 @@ Validado contra a API: **80/80** (5 papéis de cada tipo × 4 datas) batendo at�
 └── requirements.txt
 ```
 
-## Instalação
+## Instalação — comando único
+
+Depois de clonar o repositório, com o **Excel fechado**, rode **um** comando:
+
+```powershell
+cd sistema
+python setup.py
+```
+(ou dê **duplo-clique em `setup.bat`**)
+
+Isso faz tudo sozinho: instala dependências, cria o banco, gera o calendário de
+feriados, baixa o **CDI** (BACEN) e a **curva DI×Pré da B3** (`data/fluxos/_curva_di.csv`)
+e constrói/instala o add-in `RF_Calc.xlam`. Reabra o Excel e use as funções `RF_*`.
+
+Os dados públicos (feriados, CDI, curva B3) já bastam para o add-in calcular. Para
+baixar também os **fluxos de cada ativo** (precisa de `config.json` com login/senha da
+CALC), rode uma vez:
+
+```powershell
+copy config.example.json config.json   # edite com seu login/senha
+python setup.py --importar
+```
+
+<details><summary>Instalação manual (passo a passo)</summary>
 
 ```powershell
 pip install -r requirements.txt
 copy config.example.json config.json   # edite com seu login/senha da CALC
 python scripts/importar_fluxos.py --feriados      # gera data/fluxos/_feriados.csv
+python -m src.sync_b3_curve                        # baixa a curva DI x Pre da B3
+python addin/build_xlam.py                         # gera o .xlam
 ```
+</details>
 
 ## Uso
 
@@ -56,9 +82,10 @@ python addin/build_xlam.py   # gera RF_Calc.xlam em %APPDATA%\Microsoft\AddIns e
 Requer "Confiar no acesso ao modelo de objeto VBA" habilitado temporariamente
 (o script avisa). No Excel as funções carregam sozinhas. Veja `docs/REFERENCIA.md`.
 
-> **Caminho dos dados no add-in**: a constante `FLUXOS_DIR` em `addin/RF_Calc.bas` está
-> com caminho absoluto. Ao mover o projeto (ou levar para outra máquina), ajuste-a e
-> rode `build_xlam.py` de novo.
+> **Caminho dos dados no add-in**: o `build_xlam.py` reescreve automaticamente a
+> constante `FLUXOS_DIR` para a pasta `data/fluxos/` desta máquina no momento do build.
+> Ao mover o projeto ou clonar em outra máquina, basta rodar o `setup.py` (ou
+> `build_xlam.py`) de novo — não precisa editar o `.bas`.
 
 ## Como funciona (resumo)
 
