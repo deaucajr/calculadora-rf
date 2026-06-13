@@ -1,0 +1,13 @@
+{
+  "api": {
+    "base_url": "https://calculadorarendafixa.com.br",
+    "login": "SEU_LOGIN_AQUI",
+    "senha": "SUA_SENHA_AQUI"
+  },
+  "data_dir": "data",
+  "token_cache_minutes": 55,
+  "bacen": {
+    "cdi_series": 12,
+    "ipca_series": 433
+  }
+}

@@ -1,0 +1,21 @@
+# Credenciais (NUNCA versionar - contem login/senha da API)
+config.json
+
+# Dados gerados (regeneraveis; nao versionar - exceto o README)
+data/*
+!data/README.md
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+*.egg-info/
+
+# Excel temporarios
+~$*.xls*
+*.xlam
+
+# Logs e backups locais
+*.log
+*.reg

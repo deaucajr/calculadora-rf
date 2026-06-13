@@ -1,0 +1,5 @@
+# Dependencias do fluxo principal
+requests>=2.28        # chamadas a API CALC/B3 e BACEN
+pywin32>=305          # gerar o .xlam via COM (build_xlam.py) e testes via Excel
+
+# Opcionais (scripts em _legado/): openpyxl, scipy, python-dateutil
