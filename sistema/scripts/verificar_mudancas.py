@@ -68,29 +68,25 @@ def carregar_assinaturas() -> dict:
     return {}
 
 
-def main(argv):
-    atualizar = "--atualizar" in argv
-    todos = "--todos" in argv
-    max_lote = 10**9 if todos else 300
-    for i, a in enumerate(argv):
-        if a == "--max" and i + 1 < len(argv):
-            max_lote = int(argv[i + 1])
+def rodar(max_lote=300, atualizar=False, todos=False, limite_auto=50, log=print) -> dict:
+    """Verifica um lote (rodizio) e detecta fluxos alterados. Reutilizavel pela
+    rotina diaria. Retorna dict com mudou/novos/erros/verificados/restantes.
 
+    atualizar: re-importa os que mudaram. limite_auto: trava de seguranca — se
+    mais que isso 'mudar' no lote (provavel falso alarme/mudanca de schema da
+    API), NAO auto-reimporta; so avisa."""
     pasta = fluxos_dir()
     locais = tickers_locais(pasta)
     sigs = carregar_assinaturas()
     hoje = date.today().isoformat()
+    lote_n = len(locais) if todos else max_lote
 
     # rodizio: primeiro os nunca-verificados, depois os mais antigos
     fila = sorted(locais, key=lambda t: sigs.get(t, {}).get("ts", ""))
-    lote = fila[:max_lote]
-
-    print(f"Pasta dos fluxos : {pasta}")
-    print(f"Ativos locais    : {len(locais)} | verificando agora: {len(lote)}"
-          f"{' (TODOS)' if todos else f' (lote; rode de novo p/ continuar o rodizio)'}\n")
+    lote = fila[:lote_n]
 
     mudou, novos, erros = [], 0, 0
-    for n, tk in enumerate(lote, 1):
+    for tk in lote:
         try:
             det = get_bond_details(tk)
             s = assinatura(det)
@@ -100,44 +96,57 @@ def main(argv):
                 novos += 1                      # 1a vez: vira baseline
             elif s != antiga:
                 mudou.append(tk)
-                print(f"  [{n}/{len(lote)}] MUDOU  {tk}")
         except Exception as e:
             erros += 1
-            print(f"  [{n}/{len(lote)}] ERRO   {tk}: {e}")
+            log(f"  ERRO {tk}: {e}")
         time.sleep(DELAY)
 
     ASSINATURAS.parent.mkdir(parents=True, exist_ok=True)
     ASSINATURAS.write_text(json.dumps(sigs, ensure_ascii=False), encoding="utf-8")
-
-    print(f"\nResumo: {len(mudou)} mudaram | {novos} baseline (1a vez) | "
-          f"{erros} erros | {len(lote)} verificados")
     restantes = sum(1 for t in locais if not sigs.get(t, {}).get("sig"))
-    if restantes:
-        print(f"Faltam {restantes} ativos para completar o 1o rodizio "
+
+    res = {"mudou": mudou, "novos": novos, "erros": erros,
+           "verificados": len(lote), "restantes": restantes, "locais": len(locais)}
+
+    if mudou:
+        log(f"[ATENCAO] fluxo mudou em {len(mudou)}: {mudou}")
+    if atualizar and mudou:
+        if len(mudou) > limite_auto:
+            log(f"  (auto-update ABORTADO: {len(mudou)} > limite {limite_auto} — "
+                f"provavel falso alarme; revise e rode --atualizar manualmente.)")
+        else:
+            data = ultimo_dia_util()
+            for tk in mudou:
+                try:
+                    log(f"  re-import {tk}: {importar_ticker(tk, data)}")
+                except Exception as e:
+                    log(f"  re-import {tk}: ERRO {e}")
+                time.sleep(DELAY)
+    return res
+
+
+def main(argv):
+    atualizar = "--atualizar" in argv
+    todos = "--todos" in argv
+    max_lote = 300
+    for i, a in enumerate(argv):
+        if a == "--max" and i + 1 < len(argv):
+            max_lote = int(argv[i + 1])
+
+    print(f"Pasta dos fluxos : {fluxos_dir()}")
+    res = rodar(max_lote=max_lote, atualizar=atualizar, todos=todos)
+    print(f"\nResumo: {len(res['mudou'])} mudaram | {res['novos']} baseline (1a vez) | "
+          f"{res['erros']} erros | {res['verificados']} verificados de {res['locais']}")
+    if res["restantes"]:
+        print(f"Faltam {res['restantes']} para completar o 1o rodizio "
               f"(rode de novo, ou use --todos).")
-
-    if not mudou:
-        print("\n[ OK ] Nenhuma mudanca de fluxo detectada neste lote.")
+    if not res["mudou"]:
+        print("[ OK ] Nenhuma mudanca de fluxo detectada neste lote.")
         return 0
-
-    print(f"\n[ATENCAO] Fluxo mudou em {len(mudou)} ativos: {mudou}")
     if not atualizar:
-        print("Para re-importar SO esses, rode:")
-        print("   python scripts/verificar_mudancas.py --atualizar")
+        print("Para re-importar SO esses, rode: python scripts/verificar_mudancas.py --atualizar")
         return 1
-
-    data = ultimo_dia_util()
-    print(f"\nRe-importando {len(mudou)} ativos alterados (data {data})...")
-    ok = err = 0
-    for tk in mudou:
-        try:
-            print(f"  {tk}: {importar_ticker(tk, data)}")
-            ok += 1
-        except Exception as e:
-            print(f"  {tk}: ERRO {e}")
-            err += 1
-        time.sleep(DELAY)
-    print(f"\nAtualizados: {ok} ok, {err} erro. Reabra o Excel.")
+    print("Atualizacao concluida. Reabra o Excel.")
     return 0
 
 
