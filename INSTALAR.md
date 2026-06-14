@@ -61,10 +61,16 @@ caminho a cada colega.
 1. Baixe o repositório do GitHub (botão **Code → Download ZIP**, ou `git clone`).
 2. Abra a pasta `sistema/dist/`.
 3. **Feche o Excel** e dê **duplo-clique em `instalar.bat`**.
-   - Se pedir, cole o caminho da pasta de fluxos.
+   - Se pedir, cole o caminho da pasta de fluxos (a **mesma** pasta de rede do time).
+   - O instalador cria as pastas irmãs `fluxos_manual/` e `fluxos_antigo/`.
 4. Abra o Excel e teste numa célula: `=RF_LISTAR()`.
 
 Pronto — as funções `RF_*` carregam sozinhas toda vez que o Excel abrir.
+
+> **Pasta compartilhada (importante):** todos apontam para a **mesma** pasta. Quem
+> baixa os dados (o dono) atualiza uma vez e **todos enxergam** — os colegas só leem,
+> **não rodam scripts nem batem na API**. E as rotinas de atualização **pulam o que
+> já está na pasta** (resume), então o mesmo dado nunca é baixado duas vezes.
 
 ---
 

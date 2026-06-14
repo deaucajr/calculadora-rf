@@ -56,6 +56,16 @@ $cfg = Join-Path $addins "rf_fluxos.txt"
 Set-Content -Path $cfg -Value $dados -Encoding UTF8
 Write-Host "[ok] caminho dos dados: $dados"
 
+# --- 5b) garante as pastas irmas (manual / antigo) ---
+try {
+    $pai = Split-Path -Parent ($dados.TrimEnd('\'))
+    foreach ($sub in @("fluxos_manual", "fluxos_antigo")) {
+        $d = Join-Path $pai $sub
+        if (-not (Test-Path $d)) { New-Item -ItemType Directory -Force -Path $d | Out-Null }
+    }
+    Write-Host "[ok] pastas manual/antigo prontas em $pai"
+} catch { }
+
 # --- 6) valida e, se for OneDrive, fixa os arquivos (sempre offline) ---
 if (Test-Path $dados) {
     if ($dados -match "OneDrive") {
