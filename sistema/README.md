@@ -24,15 +24,16 @@ Validado contra a API: **80/80** (5 papéis de cada tipo × 4 datas) batendo at�
 
 ### Onde ficam os CSV de fluxo (`fluxos_dir`)
 
-Por padrão, em `data/fluxos/`. Para apontar para **outra pasta sua** (inclusive na
-nuvem, ex. OneDrive/Dropbox), defina `"fluxos_dir"` no `config.json` — vale para os
-scripts **e** para o add-in (rode `build_xlam.py`/`setup.py` de novo após mudar):
+**Fonte única:** defina a pasta UMA vez em `config.json` → `"fluxos_dir"`. Vale para
+os scripts (gravar/ler) **e** para o add-in — ao rodar `build_xlam.py`/`setup.py`, o
+caminho é **propagado automaticamente** para onde o add-in lê (`rf_fluxos.txt` desta
+máquina e, se for caminho compartilhado, `dist/rf_fluxos_dir.txt` dos colegas).
 
 ```json
-{ "fluxos_dir": "C:/Users/voce/OneDrive/RF/fluxos" }
+{ "fluxos_dir": "C:/Users/voce/OneDrive/RF/fluxos" }   // ou "\\\\servidor\\rf\\fluxos"
 ```
-Em branco (`""`) usa o padrão `data/fluxos/`. Assim, quem clonar o código aponta para
-a própria pasta sem editar nada no código.
+Em branco (`""`) usa o padrão `data/fluxos/`. Aplicar sem rebuild:
+`python -m src.paths`.
 
 ## Instalação — comando único
 

@@ -115,6 +115,18 @@ def main():
         print(f"(aviso) nao copiei p/ dist: {e}")
 
     registrar_autoload()
+
+    # propaga o caminho do config.json p/ onde o add-in le (fonte unica)
+    try:
+        from src.paths import aplicar_no_addin
+        ap = aplicar_no_addin()
+        if ap.get("addin"):
+            print(f"OK: caminho de fluxos aplicado no add-in ({ap['addin']})")
+        if ap.get("dist"):
+            print(f"OK: caminho oficial propagado p/ os colegas ({ap['dist']})")
+    except Exception as e:
+        print(f"(aviso) nao apliquei o caminho no add-in: {e}")
+
     print("Pronto. Reabra o Excel: o add-in carrega sozinho (funcoes RF_*).")
     return 0
 

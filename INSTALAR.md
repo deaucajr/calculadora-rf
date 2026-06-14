@@ -30,25 +30,31 @@ caminho a cada colega.
 
 ## Para o DONO (uma vez)
 
-1. **Defina a pasta oficial dos dados.** Copie a pasta `data/fluxos/` (os `.csv`,
-   incluindo `_feriados.csv`, `_cdi.csv`, `_curva_di.csv`) para a pasta de rede,
-   ex.: `\\servidor\rendafixa\fluxos`.
-2. **Aponte o instalador para ela:** edite `sistema/dist/rf_fluxos_dir.txt` e
-   escreva o caminho (sem `#`). Faça commit.
+> **Você escreve a pasta UMA vez, em `sistema/config.json` → `"fluxos_dir"`.**
+> Esse é o único lugar: vale para os scripts (gravar/ler) **e** o add-in — o
+> `build_xlam` propaga o caminho para onde o add-in lê (`rf_fluxos.txt` desta
+> máquina e `dist/rf_fluxos_dir.txt` para os colegas).
+
+1. **Copie a pasta `data/fluxos/`** (os `.csv`, incluindo `_feriados.csv`,
+   `_cdi.csv`, `_curva_di.csv`) para a pasta de rede, ex.: `\\servidor\rendafixa\fluxos`.
+2. **Defina o caminho oficial** em `sistema/config.json`:
+   ```json
+   { "fluxos_dir": "\\\\servidor\\rendafixa\\fluxos" }
+   ```
+   (deixe `""` para usar o padrão local `data/fluxos`).
 3. **Gere o add-in distribuível** (com Excel e Python, só você precisa disso):
    ```powershell
    cd sistema
-   python addin\build_xlam.py        # gera sistema/dist/RF_Calc.xlam
-   git add sistema/dist/RF_Calc.xlam sistema/dist/rf_fluxos_dir.txt
+   python addin\build_xlam.py     # gera dist/RF_Calc.xlam E propaga o caminho
+   git add sistema/dist/RF_Calc.xlam sistema/dist/rf_fluxos_dir.txt sistema/config.json
    git commit -m "Atualiza add-in distribuivel" && git push
    ```
-   Refaça este passo sempre que mudar a lógica do `.bas`.
-4. **Mantenha os dados atualizados** (rotina leve, ~1×/dia):
+   Refaça sempre que mudar a lógica do `.bas` ou o caminho dos dados.
+4. **Mantenha os dados atualizados** (rotina leve, ~1×/dia) — grava na pasta do
+   `config.json`:
    ```powershell
-   python sistema\scripts\rotina_diaria.py        # grava na pasta configurada
+   python sistema\scripts\rotina_diaria.py
    ```
-   Defina `"fluxos_dir"` no `config.json` apontando para a pasta de rede, para os
-   scripts escreverem direto nela. Veja `sistema/README.md`.
 
 ## Para os COLEGAS (uma vez, sem Python)
 
