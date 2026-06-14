@@ -151,9 +151,19 @@ End Function
 ' Le fluxos\<TICKER>.csv para o cache. Retorna True se carregou.
 ' Cache: gAtivos(tk) = Array(hdr, fl2(IPCA/PRE), vd2, vv2, cdi)
 '   cdi = Dictionary data_iso -> fluxos2D(n,4): [dataEvento, vf, pv, du]  (so p/ CDI)
+' Pasta irma da de fluxos (mesmo pai): "fluxos_manual" / "fluxos_antigo". Barra final.
+Private Function PastaIrma(nome As String) As String
+    Dim base As String: base = FluxosDir()
+    If Right$(base, 1) = "\" Then base = Left$(base, Len(base) - 1)
+    Dim i As Long: i = InStrRev(base, "\")
+    If i > 0 Then PastaIrma = Left$(base, i) & nome & "\" Else PastaIrma = nome & "\"
+End Function
+
 Private Function CarregarAtivo(ticker As String) As Boolean
     Dim tk As String: tk = UCase(Trim(ticker))
+    ' procura no automatico (B3); se nao houver, no manual (fluxos_manual)
     Dim caminho As String: caminho = FluxosDir() & tk & ".csv"
+    If Dir(caminho) = "" Then caminho = PastaIrma("fluxos_manual") & tk & ".csv"
     If Dir(caminho) = "" Then Exit Function
 
     Dim hdr As Object: Set hdr = CreateObject("Scripting.Dictionary")
@@ -1143,15 +1153,25 @@ Erro:
 End Function
 
 Public Function RF_LISTAR() As Variant
-    Dim arr() As String, n As Long, f As String
-    ReDim arr(1 To 10000)
-    f = Dir(FluxosDir() & "*.csv")
-    Do While f <> ""
-        If Left(f, 1) <> "_" Then
-            n = n + 1: arr(n) = Left(f, Len(f) - 4)
-        End If
-        f = Dir()
-    Loop
+    Dim arr() As String, n As Long, f As String, j As Long, dup As Boolean
+    ReDim arr(1 To 20000)
+    Dim pastas(1 To 2) As String
+    pastas(1) = FluxosDir(): pastas(2) = PastaIrma("fluxos_manual")   ' auto + manual
+    Dim p As Long, nome As String
+    For p = 1 To 2
+        f = Dir(pastas(p) & "*.csv")
+        Do While f <> ""
+            If Left(f, 1) <> "_" Then
+                nome = Left(f, Len(f) - 4)
+                dup = False
+                For j = 1 To n
+                    If arr(j) = nome Then dup = True: Exit For
+                Next j
+                If Not dup Then n = n + 1: arr(n) = nome
+            End If
+            f = Dir()
+        Loop
+    Next p
     If n = 0 Then RF_LISTAR = "nenhum ativo em " & FluxosDir(): Exit Function
     Dim out() As Variant: ReDim out(1 To n, 1 To 1)
     Dim i As Long

@@ -34,7 +34,7 @@ def caminho_configurado() -> str | None:
 
 
 def fluxos_dir(criar: bool = True) -> Path:
-    """Pasta dos fluxos (config 'fluxos_dir' ou padrao data/fluxos). Cria se faltar."""
+    """Pasta dos fluxos AUTOMATICOS (B3). Config 'fluxos_dir' ou padrao data/fluxos."""
     destino = caminho_configurado()
     if destino:
         p = Path(destino).expanduser()
@@ -42,6 +42,22 @@ def fluxos_dir(criar: bool = True) -> Path:
             p = BASE_DIR / p
     else:
         p = PADRAO
+    if criar:
+        p.mkdir(parents=True, exist_ok=True)
+    return p
+
+
+def fluxos_manual_dir(criar: bool = True) -> Path:
+    """Pasta dos ativos inseridos MANUALMENTE (irma da de fluxos: <pai>/fluxos_manual)."""
+    p = fluxos_dir(criar=False).parent / "fluxos_manual"
+    if criar:
+        p.mkdir(parents=True, exist_ok=True)
+    return p
+
+
+def fluxos_antigo_dir(criar: bool = True) -> Path:
+    """Pasta dos manuais SUPERADOS por atualizacao da B3 (<pai>/fluxos_antigo)."""
+    p = fluxos_dir(criar=False).parent / "fluxos_antigo"
     if criar:
         p.mkdir(parents=True, exist_ok=True)
     return p

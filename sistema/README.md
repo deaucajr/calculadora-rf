@@ -35,6 +35,13 @@ máquina e, se for caminho compartilhado, `dist/rf_fluxos_dir.txt` dos colegas).
 Em branco (`""`) usa o padrão `data/fluxos/`. Aplicar sem rebuild:
 `python -m src.paths`.
 
+**Manual × automático × antigo:** os ativos da B3 ficam em `fluxos/` (automático);
+os criados à mão em `fluxos_manual/` (pasta irmã). O add-in lê as duas (automático
+tem prioridade). Ao rodar `atualizar_pela_b3.py TICKER`, o fluxo oficial vai para
+`fluxos/` e o manual é movido para `fluxos_antigo/` (histórico). Crie manuais com
+`inserir_manual.py` — ele garante o fim de linha **CRLF** (o add-in não lê CSV em
+LF puro).
+
 ## Instalação — comando único
 
 Depois de clonar o repositório, com o **Excel fechado**, rode **um** comando:
@@ -92,6 +99,11 @@ python scripts/verificar_cadastro.py --baixar   # baixa SO os que faltam
 python scripts/verificar_mudancas.py            # checa um lote e relata mudancas
 python scripts/verificar_mudancas.py --atualizar # re-importa SO os que mudaram
 python scripts/verificar_mudancas.py --todos    # varre tudo de uma vez (pesado)
+
+# ATIVOS MANUAIS (pasta separada) e e-mail-resumo
+python scripts/inserir_manual.py --template ABC # cria esqueleto em fluxos_manual/
+python scripts/atualizar_pela_b3.py ABC         # baixa ABC da B3 -> fluxos/, move manual->antigo
+python scripts/gerar_email.py                   # gera data/email_resumo.html/.txt
 
 # corrigir classificacao IPCA/CDI sem API (apos importacao em massa)
 python scripts/corrigir_csvs.py
