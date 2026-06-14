@@ -120,6 +120,15 @@ Requer "Confiar no acesso ao modelo de objeto VBA" habilitado temporariamente
 import) · `RF_PROXIMO_EVENTO(ticker,data)` · `RF_SPREAD(ticker)` (spread/%CDI/taxa
 de referência) · `RF_INFO(ticker,campo)` · `RF_LISTAR()`.
 
+**DI futuro** (zero-cupom): `RF_DI_PU(venc;taxa;data)` · `RF_DI_TAXA(venc;pu;data)` ·
+`RF_DI_DV01(venc;taxa;data)` · `RF_DI_DURATION(venc;data)` · `RF_DI_CURVA(venc;data)`
+(taxa da curva B3 no vencimento).
+
+**NTN-B** (Tesouro IPCA+, cupom 6% a.a.): `RF_NTNB_PU(venc;taxa;data;vna)` ·
+`RF_NTNB_TAXA(venc;pu;data;vna)` · `RF_NTNB_COTACAO(venc;taxa;data)` (% sem VNA) ·
+`RF_NTNB_DV01(venc;taxa;data;vna)` · `RF_NTNB_DURATION(venc;taxa;data)`. O `vna` é o
+VNA do dia (ANBIMA/Tesouro). `venc` = 15/05 ou 15/08 do ano.
+
 > **Caminho dos dados no add-in**: o `build_xlam.py` reescreve automaticamente a
 > constante `FLUXOS_DIR` para a pasta `data/fluxos/` desta máquina no momento do build.
 > Ao mover o projeto ou clonar em outra máquina, basta rodar o `setup.py` (ou

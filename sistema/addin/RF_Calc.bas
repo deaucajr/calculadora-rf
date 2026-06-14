@@ -16,6 +16,10 @@ Attribute VB_Name = "RF_Calc"
 '    RF_VNA(ticker,data)      RF_FLUXO(ticker,taxa,data)
 '    RF_VENCIMENTO(ticker)    RF_ATUALIZADO_EM(ticker)  RF_PROXIMO_EVENTO(ticker,data)
 '    RF_SPREAD(ticker)        RF_INFO(ticker,campo)     RF_LISTAR()
+'  DI FUTURO:  RF_DI_PU(venc,taxa,data) RF_DI_TAXA(venc,pu,data) RF_DI_DV01(...)
+'              RF_DI_DURATION(venc,data) RF_DI_CURVA(venc,data) [taxa da curva B3]
+'  NTN-B:      RF_NTNB_PU(venc,taxa,data,vna) RF_NTNB_TAXA(venc,pu,data,vna)
+'              RF_NTNB_COTACAO(venc,taxa,data) RF_NTNB_DV01(...,vna) RF_NTNB_DURATION(venc,taxa,data)
 '  MACROS (Alt+F8): RF_ATUALIZAR (limpa cache)   RF_EXPORTAR (planilha p/ enviar)
 ' ============================================================
 Option Explicit
@@ -26,6 +30,7 @@ Option Explicit
 Private Const FLUXOS_DIR As String = _
     "C:\Users\Nitro 5\OneDrive\Documentos\Claude_code\Projeto_calculadora_excel\Codigo_Fluxo\sistema\data\fluxos\"
 Private Const SEP As String = vbTab
+Private Const NTNB_CUPOM As Double = 0.0295630140987    ' NTN-B: (1,06)^0,5 - 1 (cupom semestral)
 
 Private gAtivos As Object   ' ticker -> Array(hdr, flows2D, vDates, vVals, cdi)  (cache lazy)
 Private gFeriados As Object ' CLng(date) -> True
@@ -874,6 +879,190 @@ Public Function RF_SPREAD(ticker As String) As Variant
     Exit Function
 Erro:
     RF_SPREAD = CVErr(xlErrValue)
+End Function
+
+' ================= DI FUTURO (B3) =================
+' Contrato DI e um zero-cupom: PU = 100000 / (1+taxa/100)^(du/252).
+' 'vencimento' = data de vencimento do contrato (1o dia util do mes).
+
+' Melhor data de curva disponivel <= d (ou a mais antiga). "" se nao ha curva.
+Private Function MelhorDataCurva(d As Date) As String
+    If gCurva Is Nothing Then Exit Function
+    Dim alvo As String: alvo = IsoStr(d)
+    If gCurva.Exists(alvo) Then MelhorDataCurva = alvo: Exit Function
+    Dim k As Variant, best As String, menor As String
+    For Each k In gCurva.Keys
+        If CStr(k) <= alvo Then
+            If best = "" Or CStr(k) > best Then best = CStr(k)
+        End If
+        If menor = "" Or CStr(k) < menor Then menor = CStr(k)
+    Next k
+    If best <> "" Then MelhorDataCurva = best Else MelhorDataCurva = menor
+End Function
+
+' Taxa da curva DI x Pre da B3 (interpolada) p/ o vencimento, na data.
+Public Function RF_DI_CURVA(vencimento As Variant, dataCalc As Variant) As Variant
+    On Error GoTo Erro
+    GaranteFeriados: GaranteCurva
+    Dim d As Date: d = CDate(dataCalc)
+    Dim dc As String: dc = MelhorDataCurva(d)
+    If dc = "" Then RF_DI_CURVA = CVErr(xlErrNA): Exit Function
+    Dim du As Long: du = ContaDU(d, CDate(vencimento))
+    If du <= 0 Then RF_DI_CURVA = CVErr(xlErrNum): Exit Function
+    RF_DI_CURVA = (FdDi(gCurva(dc), CDbl(du)) ^ (252# / du) - 1) * 100
+    Exit Function
+Erro:
+    RF_DI_CURVA = CVErr(xlErrValue)
+End Function
+
+' PU do DI futuro dada a taxa (% a.a.).
+Public Function RF_DI_PU(vencimento As Variant, taxa As Double, dataCalc As Variant) As Variant
+    On Error GoTo Erro
+    GaranteFeriados
+    Dim du As Long: du = ContaDU(CDate(dataCalc), CDate(vencimento))
+    If du <= 0 Then RF_DI_PU = CVErr(xlErrNum): Exit Function
+    RF_DI_PU = 100000# / (1 + taxa / 100) ^ (du / 252#)
+    Exit Function
+Erro:
+    RF_DI_PU = CVErr(xlErrValue)
+End Function
+
+' Taxa (% a.a.) do DI futuro dado o PU.
+Public Function RF_DI_TAXA(vencimento As Variant, pu As Double, dataCalc As Variant) As Variant
+    On Error GoTo Erro
+    GaranteFeriados
+    Dim du As Long: du = ContaDU(CDate(dataCalc), CDate(vencimento))
+    If du <= 0 Or pu <= 0 Then RF_DI_TAXA = CVErr(xlErrNum): Exit Function
+    RF_DI_TAXA = ((100000# / pu) ^ (252# / du) - 1) * 100
+    Exit Function
+Erro:
+    RF_DI_TAXA = CVErr(xlErrValue)
+End Function
+
+' DV01 do DI futuro: variacao do PU por 1 bp na taxa (R$, positivo).
+Public Function RF_DI_DV01(vencimento As Variant, taxa As Double, dataCalc As Variant) As Variant
+    On Error GoTo Erro
+    GaranteFeriados
+    Dim du As Long: du = ContaDU(CDate(dataCalc), CDate(vencimento))
+    If du <= 0 Then RF_DI_DV01 = CVErr(xlErrNum): Exit Function
+    Dim t As Double: t = du / 252#
+    Dim pu As Double: pu = 100000# / (1 + taxa / 100) ^ t
+    RF_DI_DV01 = pu * t / (1 + taxa / 100) * 0.0001
+    Exit Function
+Erro:
+    RF_DI_DV01 = CVErr(xlErrValue)
+End Function
+
+' Duration (Macaulay, anos uteis) do DI futuro: e um zero, entao = du/252.
+Public Function RF_DI_DURATION(vencimento As Variant, dataCalc As Variant) As Variant
+    On Error GoTo Erro
+    GaranteFeriados
+    Dim du As Long: du = ContaDU(CDate(dataCalc), CDate(vencimento))
+    If du <= 0 Then RF_DI_DURATION = CVErr(xlErrNum): Exit Function
+    RF_DI_DURATION = du / 252#
+    Exit Function
+Erro:
+    RF_DI_DURATION = CVErr(xlErrValue)
+End Function
+
+' ================= NTN-B (Tesouro IPCA+) =================
+' Cupom de 6% a.a. semestral = (1,06)^0,5 - 1. PU = VNA * cotacao(fracao).
+' 'vencimento' = 15/05 ou 15/08 do ano. 'vna' = valor do dia (ANBIMA/Tesouro Direto).
+
+' Cotacao (fracao do VNA): soma dos cupons (+ principal no vencimento), descontados.
+Private Function NtnbCotacao(venc As Date, dCalc As Date, taxa As Double) As Double
+    Dim cd As Date: cd = venc
+    Dim v As Double, du As Long, fc As Double
+    Do While cd > dCalc
+        du = ContaDU(dCalc, cd)
+        If du > 0 Then
+            fc = NTNB_CUPOM
+            If cd = venc Then fc = fc + 1#                ' principal no vencimento
+            v = v + fc / (1 + taxa / 100) ^ (du / 252#)
+        End If
+        cd = DateAdd("m", -6, cd)                         ' cupom semestral anterior (dia 15)
+    Loop
+    NtnbCotacao = v
+End Function
+
+' Cotacao da NTN-B em % (sem o VNA).
+Public Function RF_NTNB_COTACAO(vencimento As Variant, taxa As Double, dataCalc As Variant) As Variant
+    On Error GoTo Erro
+    GaranteFeriados
+    RF_NTNB_COTACAO = NtnbCotacao(CDate(vencimento), CDate(dataCalc), taxa) * 100
+    Exit Function
+Erro:
+    RF_NTNB_COTACAO = CVErr(xlErrValue)
+End Function
+
+' PU da NTN-B dada a taxa real (% a.a.) e o VNA do dia.
+Public Function RF_NTNB_PU(vencimento As Variant, taxa As Double, dataCalc As Variant, vna As Double) As Variant
+    On Error GoTo Erro
+    GaranteFeriados
+    RF_NTNB_PU = vna * NtnbCotacao(CDate(vencimento), CDate(dataCalc), taxa)
+    Exit Function
+Erro:
+    RF_NTNB_PU = CVErr(xlErrValue)
+End Function
+
+' Taxa real (% a.a.) da NTN-B dado o PU e o VNA.
+Public Function RF_NTNB_TAXA(vencimento As Variant, pu As Double, dataCalc As Variant, vna As Double) As Variant
+    On Error GoTo Erro
+    GaranteFeriados
+    If pu <= 0 Or vna <= 0 Then RF_NTNB_TAXA = CVErr(xlErrNum): Exit Function
+    Dim venc As Date: venc = CDate(vencimento)
+    Dim d As Date: d = CDate(dataCalc)
+    Dim alvo As Double: alvo = pu / vna
+    Dim lo As Double, hi As Double, mid As Double, it As Long
+    lo = -30: hi = 60
+    For it = 1 To 200
+        mid = (lo + hi) / 2
+        If NtnbCotacao(venc, d, mid) > alvo Then lo = mid Else hi = mid
+        If hi - lo < 0.0000001 Then Exit For
+    Next it
+    RF_NTNB_TAXA = (lo + hi) / 2
+    Exit Function
+Erro:
+    RF_NTNB_TAXA = CVErr(xlErrValue)
+End Function
+
+' DV01 da NTN-B: variacao do PU por 1 bp na taxa (R$, positivo).
+Public Function RF_NTNB_DV01(vencimento As Variant, taxa As Double, dataCalc As Variant, vna As Double) As Variant
+    On Error GoTo Erro
+    GaranteFeriados
+    Dim venc As Date: venc = CDate(vencimento)
+    Dim d As Date: d = CDate(dataCalc)
+    Dim p0 As Double, pUp As Double
+    p0 = vna * NtnbCotacao(venc, d, taxa)
+    pUp = vna * NtnbCotacao(venc, d, taxa + 0.01)
+    RF_NTNB_DV01 = Abs(p0 - pUp)
+    Exit Function
+Erro:
+    RF_NTNB_DV01 = CVErr(xlErrValue)
+End Function
+
+' Duration (Macaulay, anos uteis) da NTN-B.
+Public Function RF_NTNB_DURATION(vencimento As Variant, taxa As Double, dataCalc As Variant) As Variant
+    On Error GoTo Erro
+    GaranteFeriados
+    Dim venc As Date: venc = CDate(vencimento)
+    Dim d As Date: d = CDate(dataCalc)
+    Dim cd As Date: cd = venc
+    Dim somaPV As Double, somaTPV As Double, du As Long, t As Double, pv As Double, fc As Double
+    Do While cd > d
+        du = ContaDU(d, cd)
+        If du > 0 Then
+            t = du / 252#
+            fc = NTNB_CUPOM: If cd = venc Then fc = fc + 1#
+            pv = fc / (1 + taxa / 100) ^ t
+            somaPV = somaPV + pv: somaTPV = somaTPV + t * pv
+        End If
+        cd = DateAdd("m", -6, cd)
+    Loop
+    If somaPV <= 0 Then RF_NTNB_DURATION = CVErr(xlErrNum) Else RF_NTNB_DURATION = somaTPV / somaPV
+    Exit Function
+Erro:
+    RF_NTNB_DURATION = CVErr(xlErrValue)
 End Function
 
 Public Function RF_LISTAR() As Variant
