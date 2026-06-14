@@ -37,6 +37,7 @@ Private gFeriados As Object ' CLng(date) -> True
 Private gCdi As Object      ' data_iso -> CDI diario (fracao); p/ DI-PERC (% do CDI)
 Private gCurva As Object    ' data_iso -> curva DI B3 2D(n,2): [du, taxa_aa]  (_curva_di.csv)
 Private gCfCache As Object  ' "ticker|data_iso" -> bloco sintetico CDI (cache; independe da taxa)
+Private gIpca As Object     ' data_iso -> fator IPCA (numero-indice); p/ VNA de IPCA+ em qualquer data
 Private gFluxosDir As String ' caminho resolvido em runtime (cache da sessao)
 
 ' ================= INFRA / LAZY =================
@@ -52,6 +53,7 @@ Public Sub RF_ATUALIZAR()
     Set gCdi = Nothing
     Set gCurva = Nothing
     Set gCfCache = Nothing
+    Set gIpca = Nothing
     gFluxosDir = ""
     RegistrarFuncoes
     MsgBox "Cache limpo. Os ativos serao recarregados sob demanda de:" & vbCrLf & FluxosDir(), _
@@ -504,18 +506,61 @@ Private Function ContaDU(d0 As Date, d1 As Date) As Long
     ContaDU = n
 End Function
 
+' ================= FATOR IPCA (numero-indice) =================
+' _ipca.csv: data_iso <TAB> fator (diario). Gerado por scripts/gerar_ipca.py.
+Private Sub GaranteIpca()
+    If Not gIpca Is Nothing Then Exit Sub
+    Set gIpca = CreateObject("Scripting.Dictionary")
+    Dim fnum As Integer, linha As String, p() As String
+    On Error GoTo Fim
+    fnum = FreeFile
+    Open FluxosDir() & "_ipca.csv" For Input As #fnum
+    Do While Not EOF(fnum)
+        Line Input #fnum, linha
+        p = Split(linha, SEP)
+        If UBound(p) >= 1 Then gIpca(p(0)) = Val(p(1))
+    Loop
+    Close #fnum
+    Exit Sub
+Fim:
+    On Error Resume Next
+    Close #fnum
+End Sub
+
+' Fator IPCA na data (ou o dia util/disponivel mais proximo anterior, ate 7 dias).
+Private Function IpcaFator(d As Date) As Double
+    GaranteIpca
+    If gIpca Is Nothing Then Exit Function
+    Dim i As Long, k As String
+    For i = 0 To 7
+        k = IsoStr(d - i)
+        If gIpca.Exists(k) Then IpcaFator = gIpca(k): Exit Function
+    Next i
+End Function
+
 ' ================= VNA(data) =================
-Private Function VNAData(vDates As Variant, vVals As Variant, dCalc As Date) As Double
+Private Function VNAData(vDates As Variant, vVals As Variant, dCalc As Date, _
+                         Optional ehIpca As Boolean = False) As Double
     On Error GoTo Falha
     Dim lo As Long, hi As Long
     lo = LBound(vDates): hi = UBound(vDates)
     Dim x As Double: x = CDbl(dCalc)
-    If hi = lo Then VNAData = vVals(lo): Exit Function
+    If hi = lo And Not ehIpca Then VNAData = vVals(lo): Exit Function
 
     Dim i As Long
     For i = lo To hi
         If vDates(i) = x Then VNAData = vVals(i): Exit Function
     Next i
+
+    ' IPCA: fora do intervalo dos pontos gravados, ancora no extremo e move pelo
+    ' fator do IPCA (numero-indice em _ipca.csv) -> VNA correta p/ qualquer data.
+    If ehIpca And (x < vDates(lo) Or x > vDates(hi) Or hi = lo) Then
+        Dim anc As Long: anc = IIf(x <= vDates(lo), lo, hi)
+        Dim fa As Double, fd As Double
+        fa = IpcaFator(CDate(vDates(anc))): fd = IpcaFator(dCalc)
+        If fa > 0 And fd > 0 Then VNAData = vVals(anc) * fd / fa: Exit Function
+    End If
+    If hi = lo Then VNAData = vVals(lo): Exit Function
 
     Dim a As Long, b As Long
     If x < vDates(lo) Then
@@ -596,7 +641,7 @@ Private Sub CalcCore(hdr As Object, fl As Variant, vDates As Variant, vVals As V
         du = ContaDU(dCalc, CDate(fl(i, 1)))
         If du > 0 Then cotacao = cotacao + fl(i, 6) / (1 + taxa / 100) ^ (du / 252#)
     Next i
-    Dim vna As Double: vna = VNAData(vDates, vVals, dCalc)
+    Dim vna As Double: vna = VNAData(vDates, vVals, dCalc, UCase(CStr(hdr("INDEXADOR"))) = "IPCA")
     If vna <= 0 Then ehErro = True: Exit Sub
     pu = Int(cotacao * vna * 1000000#) / 1000000#
 End Sub
@@ -717,7 +762,7 @@ Public Function RF_VNA(ticker As String, dataCalc As Variant) As Variant
     On Error GoTo Erro
     Dim hdr As Object, fl As Variant, vd As Variant, vv As Variant, cdi As Object
     If Not PegaAtivo(ticker, hdr, fl, vd, vv, cdi) Then RF_VNA = CVErr(xlErrNA): Exit Function
-    Dim v As Double: v = VNAData(vd, vv, CDate(dataCalc))
+    Dim v As Double: v = VNAData(vd, vv, CDate(dataCalc), UCase(CStr(hdr("INDEXADOR"))) = "IPCA")
     If v <= 0 Then RF_VNA = CVErr(xlErrNum) Else RF_VNA = v
     Exit Function
 Erro:
@@ -748,7 +793,7 @@ Public Function RF_FLUXO(ticker As String, taxa As Double, dataCalc As Variant) 
         Exit Function
     End If
 
-    Dim vna As Double: vna = VNAData(vd, vv, d)
+    Dim vna As Double: vna = VNAData(vd, vv, d, UCase(CStr(hdr("INDEXADOR"))) = "IPCA")
     If vna <= 0 Then RF_FLUXO = CVErr(xlErrNum): Exit Function
     Dim n As Long: n = UBound(fl, 1)
     Dim out() As Variant: ReDim out(0 To n, 1 To 5)

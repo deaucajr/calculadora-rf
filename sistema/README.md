@@ -160,6 +160,7 @@ VNA do dia (ANBIMA/Tesouro). `venc` = 15/05 ou 15/08 do ano.
 - **IPCA/PRÉ**: `PU = [Σ FC%/(1+taxa)^(du/252)] × VNA(data)`. FC% independe da data → 1 download serve para qualquer taxa/data.
 - **CDI+spread**: ajuste de spread sobre o PV salvo.
 - **%CDI (DI-PERC)**: reconstrói a **curva DI implícita** (`FD = VF/PV`) de cada papel e reprecifica — exato, sem baixar curva externa.
+- **IPCA+**: a VNA vem dos pontos gravados; **fora desse intervalo** (datas passadas/futuras) o add-in calcula a VNA pelo **fator do IPCA** (`_ipca.csv`, gerado por `gerar_ipca.py` do BACEN+ANBIMA, público) ancorado no último ponto — `VNA(data)=VNA_âncora×fator(data)/fator(âncora)`. Assim atualizar só o IPCA mantém a VNA correta em qualquer data (erro ~0,2% vs vários % na extrapolação antiga).
 
 Detalhes completos em [`docs/arquitetura.md`](docs/arquitetura.md).
 

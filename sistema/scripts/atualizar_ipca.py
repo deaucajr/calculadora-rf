@@ -63,6 +63,12 @@ def run(refrescar_ativos=False):
         log("  projecao IPCA (ANBIMA) ok")
     except Exception as e:
         log(f"  projecao: {e}")
+    try:
+        from gerar_ipca import gerar_ipca_csv   # fator diario p/ o add-in calcular a VNA
+        gerar_ipca_csv()
+        log("  _ipca.csv (fator p/ o add-in) gerado")
+    except Exception as e:
+        log(f"  _ipca.csv: {e}")
     # EXTRA opcional: VNA exata via calc API (so com --refresh-ativos, credenciais e mes novo)
     if refrescar_ativos:
         if _tem_credenciais():
