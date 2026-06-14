@@ -98,12 +98,11 @@ python scripts/corrigir_csvs.py
 # validar contra a API (5 de cada tipo x 4 datas)
 python scripts/validar.py
 
-# rotina diaria
-python scripts/rotina_diaria.py            # COMPLETA: re-importa todos p/ hoje (pesado)
-python scripts/rotina_diaria.py --leve     # LEVE: CDI+curva (publicos) + ativos novos
-                                           #       + rodizio de mudanca de fluxo (poucas
-                                           #       chamadas). Recomendada no dia a dia.
-python scripts/rotina_diaria.py --agendar --leve   # agenda a leve (7h30, dias uteis)
+# rotina diaria (LEVE por padrao: CDI+curva publicos + ativos novos + refresh
+# mensal de IPCA so quando sai mes novo + rodizio de mudanca de fluxo)
+python scripts/rotina_diaria.py            # leve (recomendada no dia a dia)
+python scripts/rotina_diaria.py --completo # re-importa TODOS p/ hoje (pesado; raro)
+python scripts/rotina_diaria.py --agendar  # agenda a leve (7h30, dias uteis)
 ```
 
 ### Add-in Excel

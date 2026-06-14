@@ -12,15 +12,18 @@ Passos: CDI (BACEN) + curva DI x Pre (B3) publicos; ativos novos; e um RODIZIO
 de deteccao de mudanca de fluxo (getbonddetails) que re-importa so o que mudou.
 
 Modos:
-  python rotina_diaria.py            -> COMPLETO: re-importa todos p/ hoje (pesado)
-  python rotina_diaria.py --leve     -> LEVE: publicos + novos + rodizio (poucas
-                                        chamadas; recomendado, pois o add-in ja
-                                        precifica CDI por curva e IPCA/PRE
-                                        independem da data)
-  python rotina_diaria.py --agendar [--leve]  -> agenda no Windows (7h30, dias uteis)
+  python rotina_diaria.py            -> LEVE (PADRAO): CDI+curva publicos + ativos
+                                        novos + refresh mensal de IPCA (so quando
+                                        sai IPCA novo) + rodizio de mudanca de
+                                        fluxo. Poucas chamadas a API.
+  python rotina_diaria.py --completo -> re-importa TODOS p/ hoje (pesado; raramente
+                                        necessario, o add-in ja preca CDI por curva
+                                        e IPCA/PRE independem da data alem da VNA)
+  python rotina_diaria.py --agendar [--completo]  -> agenda no Windows (7h30, uteis)
 """
 import sys
 import subprocess
+import time
 from datetime import datetime
 from pathlib import Path
 
@@ -29,11 +32,11 @@ ROOT = BASE.parent
 sys.path.insert(0, str(ROOT))
 
 
-def agendar(leve=False):
-    """Cria tarefa no Agendador do Windows: 7h30, seg-sex."""
+def agendar(completo=False):
+    """Cria tarefa no Agendador do Windows: 7h30, seg-sex (leve por padrao)."""
     py = sys.executable
     script = str(BASE / "rotina_diaria.py")
-    alvo = f'"{py}" "{script}"' + (" --leve" if leve else "")
+    alvo = f'"{py}" "{script}"' + (" --completo" if completo else "")
     cmd = [
         "schtasks", "/Create", "/TN", "RF_RotinaDiaria", "/SC", "WEEKLY",
         "/D", "MON,TUE,WED,THU,FRI", "/ST", "07:30",
@@ -110,36 +113,118 @@ def _novos_do_universo():
     return novos
 
 
-def run(leve=False):
-    """leve=False: atualiza TODOS os ativos p/ hoje (pesado, ~1 calcPU/ativo).
-    leve=True: so dados publicos (CDI/curva) + ativos novos + rodizio de
-    mudancas — bem menos chamadas a API (recomendado no dia a dia, ja que o
-    add-in precifica CDI por curva e IPCA/PRE independem da data)."""
+IPCA_MARK = ROOT / "data" / "_ipca_refresh.txt"
+
+
+def atualizar_ipca():
+    """Sincroniza IPCA mensal (BACEN) + projecao ANBIMA -> rf.db."""
+    from src.sync_bacen import sync_ipca, sync_anbima_ipca_projection
+    from importar_todos import log
+    try:
+        sync_ipca(start="01/01/2020")
+        sync_anbima_ipca_projection()
+    except Exception as e:
+        log(f"  IPCA sync: {e}")
+
+
+def _ultimo_ipca_ref():
+    """Mes de referencia (YYYY-MM-DD) do IPCA mais recente no rf.db."""
+    from src.db import get_conn
+    try:
+        with get_conn() as c:
+            r = c.execute("SELECT MAX(date) FROM ipca_monthly").fetchone()
+        return r[0] if r and r[0] else None
+    except Exception:
+        return None
+
+
+def _ativos_ipca():
+    """Tickers locais cujo INDEXADOR = IPCA (le so o cabecalho META)."""
+    from src.paths import fluxos_dir
+    out = []
+    for p in fluxos_dir().glob("*.csv"):
+        if p.name.startswith("_"):
+            continue
+        try:
+            for ln in p.read_text(encoding="utf-8").splitlines()[:15]:
+                c = ln.split("\t")
+                if c[0] == "META" and len(c) >= 3 and c[1] == "INDEXADOR":
+                    if c[2].upper() == "IPCA":
+                        out.append(p.stem.upper())
+                    break
+        except Exception:
+            pass
+    return out
+
+
+def refresh_ipca_se_novo():
+    """Se saiu IPCA novo (ref > ultima marca), re-importa os ativos IPCA para
+    atualizar a VNA. Roda ~1x/mes — o que mantem o IPCA correto sem import diario."""
+    from importar_todos import log, ultimo_dia_util
+    from importar_fluxos import importar_ticker
+    ref = _ultimo_ipca_ref()
+    if not ref:
+        return
+    marca = IPCA_MARK.read_text(encoding="utf-8").strip() if IPCA_MARK.exists() else ""
+    if ref <= marca:
+        log(f"  IPCA sem mes novo (ref {ref}); VNA ja atualizada")
+        return
+    ativos = _ativos_ipca()
+    data = ultimo_dia_util()
+    log(f"  IPCA novo (ref {ref}): atualizando VNA de {len(ativos)} ativos IPCA...")
+    ok = err = 0
+    for tk in ativos:
+        try:
+            importar_ticker(tk, data)
+            ok += 1
+        except Exception as e:
+            err += 1
+            log(f"    {tk}: ERRO {e}")
+        time.sleep(0.4)
+    IPCA_MARK.write_text(ref, encoding="utf-8")
+    log(f"  IPCA refresh: {ok} ok, {err} erro (marca={ref})")
+
+
+def _marcar_ipca():
+    """Marca o IPCA como ja refrescado (usado apos o import completo)."""
+    ref = _ultimo_ipca_ref()
+    if ref:
+        IPCA_MARK.write_text(ref, encoding="utf-8")
+
+
+def run(leve=True):
+    """leve=True (padrao): dados publicos (CDI/curva) + ativos novos + refresh
+    mensal de IPCA (so quando sai mes novo) + rodizio de mudanca de fluxo — poucas
+    chamadas. leve=False: re-importa TODOS p/ hoje (pesado). Viavel ser leve pois
+    o add-in preca CDI por curva e IPCA/PRE so dependem da VNA (refrescada no IPCA)."""
     from importar_todos import main as importar_main, log, ultimo_dia_util
     from importar_fluxos import importar_ticker
-    log(f"=== ROTINA DIARIA{' (leve)' if leve else ''} ===")
+    log(f"=== ROTINA DIARIA{' (leve)' if leve else ' (completa)'} ===")
     atualizar_cdi()
+    atualizar_ipca()
     atualizar_curva_di()
     novos = _novos_do_universo()
 
     if leve:
-        # importa so os ativos novos (poucas chamadas)
         data = ultimo_dia_util()
-        for t, lst in novos.items():
+        for t, lst in novos.items():                 # importa so os ativos novos
             for tk in lst:
                 try:
                     log(f"  novo {tk}: {importar_ticker(tk, data)}")
                 except Exception as e:
                     log(f"  novo {tk}: ERRO {e}")
+        refresh_ipca_se_novo()                        # VNA do IPCA ~1x/mes
     else:
-        importar_main(["deb", "cri", "cra"])     # refresh completo
+        importar_main(["deb", "cri", "cra"])          # refresh completo
+        _marcar_ipca()                                # tudo ja foi reimportado
 
-    verificar_mudancas_lote(atualizar=True)        # rodizio de mudanca de fluxo
+    verificar_mudancas_lote(atualizar=True)           # rodizio de mudanca de fluxo
     log("=== ROTINA DIARIA FIM ===")
 
 
 if __name__ == "__main__":
+    completo = "--completo" in sys.argv
     if "--agendar" in sys.argv:
-        agendar(leve="--leve" in sys.argv)
+        agendar(completo=completo)
     else:
-        run(leve="--leve" in sys.argv)
+        run(leve=not completo)
