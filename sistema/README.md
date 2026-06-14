@@ -113,6 +113,12 @@ python addin/build_xlam.py   # gera RF_Calc.xlam em %APPDATA%\Microsoft\AddIns e
 Requer "Confiar no acesso ao modelo de objeto VBA" habilitado temporariamente
 (o script avisa). No Excel as funções carregam sozinhas. Veja `docs/REFERENCIA.md`.
 
+**Funções disponíveis** (taxa em % a.a.; data obrigatória onde se aplica):
+`RF_PU` · `RF_TAXA` · `RF_DURATION` · `RF_DV01` · `RF_CONVEXIDADE` · `RF_VNA` ·
+`RF_FLUXO` · `RF_VENCIMENTO(ticker)` · `RF_ATUALIZADO_EM(ticker)` (data do último
+import) · `RF_PROXIMO_EVENTO(ticker,data)` · `RF_SPREAD(ticker)` (spread/%CDI/taxa
+de referência) · `RF_INFO(ticker,campo)` · `RF_LISTAR()`.
+
 > **Caminho dos dados no add-in**: o `build_xlam.py` reescreve automaticamente a
 > constante `FLUXOS_DIR` para a pasta `data/fluxos/` desta máquina no momento do build.
 > Ao mover o projeto ou clonar em outra máquina, basta rodar o `setup.py` (ou

@@ -12,8 +12,10 @@ Attribute VB_Name = "RF_Calc"
 '
 '  FUNCOES (taxa em % a.a.; data obrigatoria):
 '    RF_PU(ticker,taxa,data)  RF_TAXA(ticker,pu,data)  RF_DURATION(ticker,taxa,data)
-'    RF_DV01(ticker,taxa,data) RF_VNA(ticker,data)     RF_FLUXO(ticker,taxa,data)
-'    RF_INFO(ticker,campo)    RF_LISTAR()
+'    RF_DV01(ticker,taxa,data) RF_CONVEXIDADE(ticker,taxa,data)
+'    RF_VNA(ticker,data)      RF_FLUXO(ticker,taxa,data)
+'    RF_VENCIMENTO(ticker)    RF_ATUALIZADO_EM(ticker)  RF_PROXIMO_EVENTO(ticker,data)
+'    RF_SPREAD(ticker)        RF_INFO(ticker,campo)     RF_LISTAR()
 '  MACROS (Alt+F8): RF_ATUALIZAR (limpa cache)   RF_EXPORTAR (planilha p/ enviar)
 ' ============================================================
 Option Explicit
@@ -587,6 +589,26 @@ Erro:
     RF_DV01 = CVErr(xlErrValue)
 End Function
 
+Public Function RF_CONVEXIDADE(ticker As String, taxa As Double, dataCalc As Variant) As Variant
+    On Error GoTo Erro
+    Dim hdr As Object, fl As Variant, vd As Variant, vv As Variant, cdi As Object
+    If Not PegaAtivo(ticker, hdr, fl, vd, vv, cdi) Then RF_CONVEXIDADE = CVErr(xlErrNA): Exit Function
+    Dim d As Date: d = CDate(dataCalc)
+    Dim db As Double: db = 0.1                       ' bump de 0,10 p.p. na taxa
+    Dim p0 As Double, pPlus As Double, pMinus As Double, cot As Double, e As Boolean
+    CalcCore hdr, fl, vd, vv, cdi, taxa, d, cot, p0, e
+    If e Or p0 <= 0 Then RF_CONVEXIDADE = CVErr(xlErrNum): Exit Function
+    CalcCore hdr, fl, vd, vv, cdi, taxa + db, d, cot, pPlus, e
+    If e Then RF_CONVEXIDADE = CVErr(xlErrNum): Exit Function
+    CalcCore hdr, fl, vd, vv, cdi, taxa - db, d, cot, pMinus, e
+    If e Then RF_CONVEXIDADE = CVErr(xlErrNum): Exit Function
+    Dim dy As Double: dy = db / 100#                 ' bump em fracao (anos^2)
+    RF_CONVEXIDADE = (pPlus + pMinus - 2 * p0) / (p0 * dy * dy)
+    Exit Function
+Erro:
+    RF_CONVEXIDADE = CVErr(xlErrValue)
+End Function
+
 Private Sub DurPU(ticker As String, taxa As Double, d As Date, _
                   ByRef dur As Double, ByRef pu As Double, ByRef ehErro As Boolean)
     ehErro = False: dur = 0: pu = 0
@@ -706,6 +728,95 @@ Public Function RF_INFO(ticker As String, campo As String) As Variant
     Exit Function
 Erro:
     RF_INFO = CVErr(xlErrValue)
+End Function
+
+' Maior data de evento do ativo (vencimento). Retorna Date.
+Private Function VencimentoAtivo(hdr As Object, fl As Variant, cdi As Object) As Date
+    If hdr.Exists("VENCIMENTO") Then
+        Dim dv As Date: dv = ParseISO(CStr(hdr("VENCIMENTO")))
+        If dv > 0 Then VencimentoAtivo = dv: Exit Function
+    End If
+    Dim best As Double: best = 0
+    Dim i As Long, k As Variant, arr As Variant, ev As Date
+    If Not cdi Is Nothing Then
+        For Each k In cdi.Keys
+            arr = cdi(k)
+            For i = 1 To UBound(arr, 1)
+                ev = CDate(arr(i, 1)): If CDbl(ev) > best Then best = CDbl(ev)
+            Next i
+        Next k
+    ElseIf IsArray(fl) Then
+        For i = 1 To UBound(fl, 1)
+            ev = CDate(fl(i, 1)): If CDbl(ev) > best Then best = CDbl(ev)
+        Next i
+    End If
+    If best > 0 Then VencimentoAtivo = CDate(best)
+End Function
+
+' Data de vencimento do papel (Date).
+Public Function RF_VENCIMENTO(ticker As String) As Variant
+    On Error GoTo Erro
+    Dim hdr As Object, fl As Variant, vd As Variant, vv As Variant, cdi As Object
+    If Not PegaAtivo(ticker, hdr, fl, vd, vv, cdi) Then RF_VENCIMENTO = CVErr(xlErrNA): Exit Function
+    Dim dv As Date: dv = VencimentoAtivo(hdr, fl, cdi)
+    If dv > 0 Then RF_VENCIMENTO = dv Else RF_VENCIMENTO = CVErr(xlErrNA)
+    Exit Function
+Erro:
+    RF_VENCIMENTO = CVErr(xlErrValue)
+End Function
+
+' Data da ultima atualizacao do fluxo (DATA_FLUXO importada).
+Public Function RF_ATUALIZADO_EM(ticker As String) As Variant
+    On Error GoTo Erro
+    Dim hdr As Object, fl As Variant, vd As Variant, vv As Variant, cdi As Object
+    If Not PegaAtivo(ticker, hdr, fl, vd, vv, cdi) Then RF_ATUALIZADO_EM = CVErr(xlErrNA): Exit Function
+    Dim dt As Date
+    If hdr.Exists("DATA_FLUXO") Then dt = ParseISO(CStr(hdr("DATA_FLUXO")))
+    If dt > 0 Then RF_ATUALIZADO_EM = dt Else RF_ATUALIZADO_EM = CVErr(xlErrNA)
+    Exit Function
+Erro:
+    RF_ATUALIZADO_EM = CVErr(xlErrValue)
+End Function
+
+' Proxima data de evento (cupom/amortizacao) estritamente apos dataCalc (Date).
+Public Function RF_PROXIMO_EVENTO(ticker As String, dataCalc As Variant) As Variant
+    On Error GoTo Erro
+    Dim hdr As Object, fl As Variant, vd As Variant, vv As Variant, cdi As Object
+    If Not PegaAtivo(ticker, hdr, fl, vd, vv, cdi) Then RF_PROXIMO_EVENTO = CVErr(xlErrNA): Exit Function
+    Dim d As Date: d = CDate(dataCalc)
+    Dim best As Double: best = 0
+    Dim i As Long, ev As Date
+    If UCase(CStr(hdr("INDEXADOR"))) = "CDI" Then
+        Dim cf As Variant
+        If Not ObtemCfCdi(hdr, cdi, d, cf) Then RF_PROXIMO_EVENTO = CVErr(xlErrNum): Exit Function
+        For i = 1 To UBound(cf, 1)
+            ev = CDate(cf(i, 1))
+            If ev > d Then If best = 0 Or CDbl(ev) < best Then best = CDbl(ev)
+        Next i
+    ElseIf IsArray(fl) Then
+        For i = 1 To UBound(fl, 1)
+            ev = CDate(fl(i, 1))
+            If ev > d Then If best = 0 Or CDbl(ev) < best Then best = CDbl(ev)
+        Next i
+    End If
+    If best > 0 Then RF_PROXIMO_EVENTO = CDate(best) Else RF_PROXIMO_EVENTO = CVErr(xlErrNA)
+    Exit Function
+Erro:
+    RF_PROXIMO_EVENTO = CVErr(xlErrValue)
+End Function
+
+' Taxa de referencia contratual: CDI+ -> spread (% a.a.); %CDI -> percentual do
+' CDI; IPCA/PRE -> taxa de emissao. (Numero.)
+Public Function RF_SPREAD(ticker As String) As Variant
+    On Error GoTo Erro
+    Dim hdr As Object, fl As Variant, vd As Variant, vv As Variant, cdi As Object
+    If Not PegaAtivo(ticker, hdr, fl, vd, vv, cdi) Then RF_SPREAD = CVErr(xlErrNA): Exit Function
+    Dim campo As String
+    If UCase(CStr(hdr("INDEXADOR"))) = "CDI" Then campo = "TAXA_REF" Else campo = "TAXA_EMISSAO"
+    If hdr.Exists(campo) Then RF_SPREAD = Val(CStr(hdr(campo))) Else RF_SPREAD = CVErr(xlErrNA)
+    Exit Function
+Erro:
+    RF_SPREAD = CVErr(xlErrValue)
 End Function
 
 Public Function RF_LISTAR() As Variant
