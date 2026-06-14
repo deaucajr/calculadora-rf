@@ -105,6 +105,10 @@ python scripts/inserir_manual.py --template ABC # cria esqueleto em fluxos_manua
 python scripts/atualizar_pela_b3.py ABC         # baixa ABC da B3 -> fluxos/, move manual->antigo
 python scripts/gerar_email.py                   # gera data/email_resumo.html/.txt
 
+# IPCA 3x/dia (cobre a divulgacao p/ NTN-B e IPCA+ nao defasarem)
+agendar_ipca.bat                                # duplo-clique: agenda 10h/12h/17h
+python scripts/atualizar_ipca.py                # roda agora (historico BACEN + projecao ANBIMA)
+
 # corrigir classificacao IPCA/CDI sem API (apos importacao em massa)
 python scripts/corrigir_csvs.py
 
