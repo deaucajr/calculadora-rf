@@ -60,30 +60,53 @@ def pv(cf, y0, X):
     return sum(V.pvcdi_ref(cf, y0, X))
 
 
-def fluxo_call(cf, y0, cD, vne, call_date: date, premio_pct: float):
-    """Constroi o fluxo de pre-pagamento: cupons ate a call + resgate na call."""
-    mat = max(cf, key=lambda r: r[3])           # evento de vencimento (maior du)
+def amortizacoes(ticker):
+    """Cronograma de amortizacao do CSV: lista (data_evento, face). 'A' = amort."""
+    path = ROOT / "data" / "fluxos" / f"{ticker}.csv"
+    meta = {}
+    out = []
+    for ln in path.read_text(encoding="utf-8").splitlines():
+        c = ln.split("\t")
+        if c[0] == "META" and len(c) >= 3:
+            meta[c[1]] = c[2]
+        elif c[0] == "FLUXOD" and len(c) >= 7 and c[1] == meta.get("DATA_FLUXO") and c[3] == "A":
+            y, m, d = c[2].split("-")
+            out.append((date(int(y), int(m), int(d)), float(c[4])))
+    return out
+
+
+def fluxo_call(cf, y0, cD, amorts, call_date: date, premio_pct: float, conv="aa"):
+    """Constroi o fluxo de pre-pagamento: fluxo real ate a call + resgate do SALDO
+    EM ABERTO na call (com premio). 'amorts' = [(data, face)] do cronograma.
+    conv: 'aa' = premio % a.a. compondo no prazo remanescente;
+          'aa_linear' = premio % a.a. linear; 'flat' = acrescimo flat."""
+    mat = max(cf, key=lambda r: r[3])
     mat_du, mat_dt = mat[3], mat[0]
     du_call = mat_du - V.bdays(call_date, mat_dt)
     if du_call <= 0:
         raise ValueError("call_date fora do prazo do papel")
-    # cupons pagos ATE a call (exclui o que vence depois, inclui amortizacao parcial <= call)
     base = [r for r in cf if r[3] <= du_call and r[0] <= call_date]
-    # resgate antecipado = principal em aberto * (1 + premio)   [bullet: principal = VNE]
-    R = vne * (1 + premio_pct / 100.0)
+    rem = mat_du - du_call
+    if conv == "aa":
+        fator = (1 + premio_pct / 100) ** (rem / 252)
+    elif conv == "aa_linear":
+        fator = 1 + premio_pct / 100 * (rem / 252)
+    else:
+        fator = 1 + premio_pct / 100
+    saldo = sum(face for d, face in amorts if d > call_date)   # principal ainda nao amortizado
+    R = saldo * fator                                          # resgate = saldo * fator do premio
     pv_R = R / (V._fd_di(cD, float(du_call)) * (1 + y0 / 100) ** (du_call / 252))
-    return base + [(call_date, R, pv_R, du_call)]
+    return base + [(call_date, R, pv_R, du_call)], fator, saldo
 
 
-def breakeven(ticker, call_date, premio_pct, D=None, lo=-5.0, hi=60.0):
+def breakeven(ticker, call_date, premio_pct, conv="aa", D=None, lo=-5.0, hi=60.0):
     """Spread X tal que PV_real(X) == PV_call(X). Retorna (X, pv_real, pv_call, y0)."""
     meta, blocos = V.ler_ativo(str(ROOT / "data" / "fluxos" / f"{ticker}.csv"))
     Diso = _ultima_data_curva() if D is None else D
     Dd = date.fromisoformat(Diso) if isinstance(Diso, str) else Diso
     cf, y0, cD = bloco_sintetico(meta, blocos, Dd)
-    vne = float(meta.get("VNE", 1000.0))
     cd = date.fromisoformat(call_date) if isinstance(call_date, str) else call_date
-    cf_call = fluxo_call(cf, y0, cD, vne, cd, premio_pct)
+    cf_call, fator, saldo = fluxo_call(cf, y0, cD, amortizacoes(ticker), cd, premio_pct, conv)
 
     f = lambda X: pv(cf, y0, X) - pv(cf_call, y0, X)
     a, b = lo, hi
@@ -115,25 +138,41 @@ def _call_exemplo(meta, blocos, anos_antes=2):
 
 
 if __name__ == "__main__":
-    # 5 CDI+ bullet. call_date/premio sao ILUSTRATIVOS (call ~2 anos antes do
-    # vencimento, premio de exemplo) — trocar pelos valores reais p/ validar.
-    # 5 CDI+ bullet limpos (com cupons, PV ~ par). Premio 1% e call ~2 anos antes
-    # do vencimento sao SO placeholders — trocar pelos reais (ANBIMA/escritura).
-    tickers = [("AALM12", 1.0), ("ABFR14", 1.0), ("ACHE14", 1.0),
-               ("ACHE15", 1.0), ("ACOV15", 1.0)]
-    print(f"{'TICKER':<9}{'spread%':>8}{'venc':>12}{'call(ex)':>12}{'prem%':>6}"
-          f"{'PV@spread':>11}{'PV_call':>10}{'BREAKEVEN%':>11}")
-    for tk, prem in tickers:
+    # Dados REAIS informados (call_date, premio %a.a., convencao). ABFR14: ano da
+    # call assumido 2027 (cliente nao informou) -> revisar.
+    casos = [
+        ("AALM12", "2027-10-02", 1.50, "aa"),         # 1,50% a.a.
+        ("ABFR14", "2027-10-16", 1.41, "aa"),         # 1,41% a.a. (ano assumido)
+        ("ACHE14", "2027-08-15", 0.30, "aa_linear"),  # 0,30% a.a. flat
+        ("ACHE15", "2027-08-15", 0.30, "aa_linear"),  # 0,30% a.a. flat
+        ("ACOV15", "2027-06-10", 0.30, "aa_linear"),  # 0,30% a.a. flat
+    ]
+    def resolve(g, lo=-10.0, hi=80.0):       # bisseccao p/ g(X)=0
+        a, b, fa = lo, hi, g(lo)
+        for _ in range(200):
+            mid = (a + b) / 2
+            fm = g(mid)
+            if fa * fm <= 0:
+                b = mid
+            else:
+                a, fa = mid, fm
+            if b - a < 1e-7:
+                break
+        return (a + b) / 2
+
+    print(f"{'TICKER':<8}{'spr%':>6}{'venc':>12}{'call':>12}{'prm%aa':>7}{'conv':>10}"
+          f"{'saldo':>8}{'PV@spr':>9}{'BE_indif':>10}{'BE_ytc':>9}")
+    for tk, cdt, prem, conv in casos:
         try:
             meta, blocos = V.ler_ativo(str(ROOT / "data" / "fluxos" / f"{tk}.csv"))
             venc = max(sorted(blocos[meta["DATA_FLUXO"]], key=lambda r: r[3]))[0].isoformat()
-            cdt = _call_exemplo(meta, blocos)
-            X, pr, pc, y0 = breakeven(tk, cdt, prem)
-            # sanity: PV ao spread contratual deve ficar ~par
-            par = breakeven.__globals__["pv"]
-            cf, _, _ = bloco_sintetico(meta, blocos, date.fromisoformat(_ultima_data_curva()))
-            pv_par = par(cf, y0, y0)
-            print(f"{tk:<9}{y0:>8}{venc:>12}{cdt:>12}{prem:>6}"
-                  f"{pv_par:>11.2f}{pc:>10.2f}{X:>11.4f}")
+            cf, y0, cD = bloco_sintetico(meta, blocos, date.fromisoformat(_ultima_data_curva()))
+            P = pv(cf, y0, y0)                                   # preco ao spread contratual
+            cf_call, fator, saldo = fluxo_call(cf, y0, cD, amortizacoes(tk),
+                                               date.fromisoformat(cdt), prem, conv)
+            be_indif = resolve(lambda X: pv(cf, y0, X) - pv(cf_call, y0, X))  # PV_real=PV_call
+            be_ytc = resolve(lambda X: pv(cf_call, y0, X) - P)               # yield-to-call ao preco P
+            print(f"{tk:<8}{y0:>6}{venc:>12}{cdt:>12}{prem:>7}{conv:>10}"
+                  f"{saldo:>8.1f}{P:>9.2f}{be_indif:>10.4f}{be_ytc:>9.4f}")
         except Exception as e:
-            print(f"{tk:<9}  ERRO: {e}")
+            print(f"{tk:<8}  ERRO: {e}")
