@@ -881,9 +881,86 @@ Erro:
     RF_SPREAD = CVErr(xlErrValue)
 End Function
 
+' ================= IDENTIFICADORES (codigos) =================
+' Letra de mes ANBIMA -> numero (F=Jan ... Z=Dez).
+Private Function MesAnbima(letra As String) As Integer
+    Select Case UCase(letra)
+        Case "F": MesAnbima = 1
+        Case "G": MesAnbima = 2
+        Case "H": MesAnbima = 3
+        Case "J": MesAnbima = 4
+        Case "K": MesAnbima = 5
+        Case "M": MesAnbima = 6
+        Case "N": MesAnbima = 7
+        Case "Q": MesAnbima = 8
+        Case "U": MesAnbima = 9
+        Case "V": MesAnbima = 10
+        Case "X": MesAnbima = 11
+        Case "Z": MesAnbima = 12
+    End Select
+End Function
+
+Private Function PrimeiroDiaUtil(ano As Integer, mes As Integer) As Date
+    GaranteFeriados
+    Dim d As Date: d = DateSerial(ano, mes, 1)
+    Do While Not EhDiaUtil(d)
+        d = d + 1
+    Loop
+    PrimeiroDiaUtil = d
+End Function
+
+' Resolve o vencimento do DI: aceita "DI1F30" (1o dia util do mes) ou uma data.
+Private Function ResolveVencDI(v As Variant) As Date
+    If VarType(v) = vbString Then
+        Dim s As String: s = UCase(Trim(CStr(v)))
+        If Left(s, 3) = "DI1" And Len(s) >= 5 Then
+            Dim mes As Integer: mes = MesAnbima(Mid(s, 4, 1))
+            Dim ano As Integer: ano = CInt(Mid(s, 5))
+            If mes = 0 Then Err.Raise 5
+            If ano < 100 Then ano = 2000 + ano
+            ResolveVencDI = PrimeiroDiaUtil(ano, mes): Exit Function
+        End If
+    End If
+    ResolveVencDI = CDate(v)
+End Function
+
+' Vencimento padrao das NTN-B por ano (15/05 ou 15/08).
+Private Function VencimentoNTNB(ano As Integer) As Date
+    Dim mes As Integer
+    Select Case ano
+        Case 2027, 2029, 2033, 2035, 2037, 2045, 2055: mes = 5
+        Case Else: mes = 8        ' 2024,2026,2028,2030,2032,2040,2050,2060,...
+    End Select
+    VencimentoNTNB = DateSerial(ano, mes, 15)
+End Function
+
+' Resolve o vencimento da NTN-B: aceita "NTN-B 26"/"NTNB26"/"NTN-B 2026" ou data.
+Private Function ResolveVencNTNB(v As Variant) As Date
+    If VarType(v) = vbString Then
+        Dim s As String: s = UCase(CStr(v))
+        s = Trim(Replace(Replace(Replace(s, "NTN-B", ""), "NTNB", ""), " ", ""))
+        If IsNumeric(s) And Len(s) >= 2 Then
+            Dim ano As Integer: ano = CInt(s)
+            If ano < 100 Then ano = 2000 + ano
+            ResolveVencNTNB = VencimentoNTNB(ano): Exit Function
+        End If
+    End If
+    ResolveVencNTNB = CDate(v)
+End Function
+
+' Vencimento (Date) de um codigo DI ("DI1F30") ou NTN-B ("NTN-B 30").
+Public Function RF_VENC_CODIGO(codigo As String) As Variant
+    On Error GoTo Erro
+    Dim s As String: s = UCase(Trim(codigo))
+    If Left(s, 3) = "DI1" Then RF_VENC_CODIGO = ResolveVencDI(s) Else RF_VENC_CODIGO = ResolveVencNTNB(s)
+    Exit Function
+Erro:
+    RF_VENC_CODIGO = CVErr(xlErrValue)
+End Function
+
 ' ================= DI FUTURO (B3) =================
 ' Contrato DI e um zero-cupom: PU = 100000 / (1+taxa/100)^(du/252).
-' 'vencimento' = data de vencimento do contrato (1o dia util do mes).
+' 'vencimento' = codigo "DI1F30" ou a data do contrato (1o dia util do mes).
 
 ' Melhor data de curva disponivel <= d (ou a mais antiga). "" se nao ha curva.
 Private Function MelhorDataCurva(d As Date) As String
@@ -907,7 +984,7 @@ Public Function RF_DI_CURVA(vencimento As Variant, dataCalc As Variant) As Varia
     Dim d As Date: d = CDate(dataCalc)
     Dim dc As String: dc = MelhorDataCurva(d)
     If dc = "" Then RF_DI_CURVA = CVErr(xlErrNA): Exit Function
-    Dim du As Long: du = ContaDU(d, CDate(vencimento))
+    Dim du As Long: du = ContaDU(d, ResolveVencDI(vencimento))
     If du <= 0 Then RF_DI_CURVA = CVErr(xlErrNum): Exit Function
     RF_DI_CURVA = (FdDi(gCurva(dc), CDbl(du)) ^ (252# / du) - 1) * 100
     Exit Function
@@ -919,7 +996,7 @@ End Function
 Public Function RF_DI_PU(vencimento As Variant, taxa As Double, dataCalc As Variant) As Variant
     On Error GoTo Erro
     GaranteFeriados
-    Dim du As Long: du = ContaDU(CDate(dataCalc), CDate(vencimento))
+    Dim du As Long: du = ContaDU(CDate(dataCalc), ResolveVencDI(vencimento))
     If du <= 0 Then RF_DI_PU = CVErr(xlErrNum): Exit Function
     RF_DI_PU = 100000# / (1 + taxa / 100) ^ (du / 252#)
     Exit Function
@@ -931,7 +1008,7 @@ End Function
 Public Function RF_DI_TAXA(vencimento As Variant, pu As Double, dataCalc As Variant) As Variant
     On Error GoTo Erro
     GaranteFeriados
-    Dim du As Long: du = ContaDU(CDate(dataCalc), CDate(vencimento))
+    Dim du As Long: du = ContaDU(CDate(dataCalc), ResolveVencDI(vencimento))
     If du <= 0 Or pu <= 0 Then RF_DI_TAXA = CVErr(xlErrNum): Exit Function
     RF_DI_TAXA = ((100000# / pu) ^ (252# / du) - 1) * 100
     Exit Function
@@ -943,7 +1020,7 @@ End Function
 Public Function RF_DI_DV01(vencimento As Variant, taxa As Double, dataCalc As Variant) As Variant
     On Error GoTo Erro
     GaranteFeriados
-    Dim du As Long: du = ContaDU(CDate(dataCalc), CDate(vencimento))
+    Dim du As Long: du = ContaDU(CDate(dataCalc), ResolveVencDI(vencimento))
     If du <= 0 Then RF_DI_DV01 = CVErr(xlErrNum): Exit Function
     Dim t As Double: t = du / 252#
     Dim pu As Double: pu = 100000# / (1 + taxa / 100) ^ t
@@ -957,7 +1034,7 @@ End Function
 Public Function RF_DI_DURATION(vencimento As Variant, dataCalc As Variant) As Variant
     On Error GoTo Erro
     GaranteFeriados
-    Dim du As Long: du = ContaDU(CDate(dataCalc), CDate(vencimento))
+    Dim du As Long: du = ContaDU(CDate(dataCalc), ResolveVencDI(vencimento))
     If du <= 0 Then RF_DI_DURATION = CVErr(xlErrNum): Exit Function
     RF_DI_DURATION = du / 252#
     Exit Function
@@ -989,7 +1066,7 @@ End Function
 Public Function RF_NTNB_COTACAO(vencimento As Variant, taxa As Double, dataCalc As Variant) As Variant
     On Error GoTo Erro
     GaranteFeriados
-    RF_NTNB_COTACAO = NtnbCotacao(CDate(vencimento), CDate(dataCalc), taxa) * 100
+    RF_NTNB_COTACAO = NtnbCotacao(ResolveVencNTNB(vencimento), CDate(dataCalc), taxa) * 100
     Exit Function
 Erro:
     RF_NTNB_COTACAO = CVErr(xlErrValue)
@@ -999,7 +1076,7 @@ End Function
 Public Function RF_NTNB_PU(vencimento As Variant, taxa As Double, dataCalc As Variant, vna As Double) As Variant
     On Error GoTo Erro
     GaranteFeriados
-    RF_NTNB_PU = vna * NtnbCotacao(CDate(vencimento), CDate(dataCalc), taxa)
+    RF_NTNB_PU = vna * NtnbCotacao(ResolveVencNTNB(vencimento), CDate(dataCalc), taxa)
     Exit Function
 Erro:
     RF_NTNB_PU = CVErr(xlErrValue)
@@ -1010,7 +1087,7 @@ Public Function RF_NTNB_TAXA(vencimento As Variant, pu As Double, dataCalc As Va
     On Error GoTo Erro
     GaranteFeriados
     If pu <= 0 Or vna <= 0 Then RF_NTNB_TAXA = CVErr(xlErrNum): Exit Function
-    Dim venc As Date: venc = CDate(vencimento)
+    Dim venc As Date: venc = ResolveVencNTNB(vencimento)
     Dim d As Date: d = CDate(dataCalc)
     Dim alvo As Double: alvo = pu / vna
     Dim lo As Double, hi As Double, mid As Double, it As Long
@@ -1030,7 +1107,7 @@ End Function
 Public Function RF_NTNB_DV01(vencimento As Variant, taxa As Double, dataCalc As Variant, vna As Double) As Variant
     On Error GoTo Erro
     GaranteFeriados
-    Dim venc As Date: venc = CDate(vencimento)
+    Dim venc As Date: venc = ResolveVencNTNB(vencimento)
     Dim d As Date: d = CDate(dataCalc)
     Dim p0 As Double, pUp As Double
     p0 = vna * NtnbCotacao(venc, d, taxa)
@@ -1045,7 +1122,7 @@ End Function
 Public Function RF_NTNB_DURATION(vencimento As Variant, taxa As Double, dataCalc As Variant) As Variant
     On Error GoTo Erro
     GaranteFeriados
-    Dim venc As Date: venc = CDate(vencimento)
+    Dim venc As Date: venc = ResolveVencNTNB(vencimento)
     Dim d As Date: d = CDate(dataCalc)
     Dim cd As Date: cd = venc
     Dim somaPV As Double, somaTPV As Double, du As Long, t As Double, pv As Double, fc As Double

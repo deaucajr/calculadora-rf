@@ -124,6 +124,10 @@ de referência) · `RF_INFO(ticker,campo)` · `RF_LISTAR()`.
 `RF_DI_DV01(venc;taxa;data)` · `RF_DI_DURATION(venc;data)` · `RF_DI_CURVA(venc;data)`
 (taxa da curva B3 no vencimento).
 
+**Códigos:** o `venc` aceita data **ou** código: DI como `"DI1F30"` (F=jan…Z=dez,
+1º dia útil do mês) e NTN-B como `"NTN-B 30"`/`"NTNB30"` (vencimento padrão 15/05 ou
+15/08). `RF_VENC_CODIGO(codigo)` devolve a data. Validado vs Tesouro/B3 (PU bate ~0,0%).
+
 **NTN-B** (Tesouro IPCA+, cupom 6% a.a.): `RF_NTNB_PU(venc;taxa;data;vna)` ·
 `RF_NTNB_TAXA(venc;pu;data;vna)` · `RF_NTNB_COTACAO(venc;taxa;data)` (% sem VNA) ·
 `RF_NTNB_DV01(venc;taxa;data;vna)` · `RF_NTNB_DURATION(venc;taxa;data)`. O `vna` é o
