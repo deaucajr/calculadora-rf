@@ -29,6 +29,7 @@ Private gAtivos As Object   ' ticker -> Array(hdr, flows2D, vDates, vVals, cdi) 
 Private gFeriados As Object ' CLng(date) -> True
 Private gCdi As Object      ' data_iso -> CDI diario (fracao); p/ DI-PERC (% do CDI)
 Private gCurva As Object    ' data_iso -> curva DI B3 2D(n,2): [du, taxa_aa]  (_curva_di.csv)
+Private gCfCache As Object  ' "ticker|data_iso" -> bloco sintetico CDI (cache; independe da taxa)
 
 ' ================= INFRA / LAZY =================
 
@@ -42,6 +43,7 @@ Public Sub RF_ATUALIZAR()
     Set gFeriados = Nothing
     Set gCdi = Nothing
     Set gCurva = Nothing
+    Set gCfCache = Nothing
     RegistrarFuncoes
     MsgBox "Cache limpo. Os ativos serao recarregados sob demanda de:" & vbCrLf & FLUXOS_DIR, _
            vbInformation, "RF Calc"
@@ -361,7 +363,14 @@ End Sub
 Private Function ObtemCfCdi(hdr As Object, cdi As Object, dCalc As Date, ByRef cf As Variant) As Boolean
     If cdi Is Nothing Then Exit Function
     Dim dc As String: dc = IsoStr(dCalc)
-    If cdi.Exists(dc) Then cf = cdi(dc): ObtemCfCdi = True: Exit Function
+    If cdi.Exists(dc) Then cf = cdi(dc): ObtemCfCdi = True: Exit Function   ' bloco real: lookup barato
+
+    ' cache do bloco sintetico (so depende de ticker+data, NAO da taxa) -> evita
+    ' reconstruir o bloco a cada iteracao da bisseccao do RF_TAXA.
+    Dim chave As String
+    If hdr.Exists("TICKER") Then chave = UCase(CStr(hdr("TICKER"))) & "|" & dc
+    If gCfCache Is Nothing Then Set gCfCache = CreateObject("Scripting.Dictionary")
+    If chave <> "" Then If gCfCache.Exists(chave) Then cf = gCfCache(chave): ObtemCfCdi = True: Exit Function
 
     Dim d0s As String: d0s = CStr(hdr("DATA_FLUXO"))
     If Not cdi.Exists(d0s) Then d0s = MelhorChaveCdi(cdi, dCalc)   ' ancora alternativa
@@ -370,7 +379,10 @@ Private Function ObtemCfCdi(hdr As Object, cdi As Object, dCalc As Date, ByRef c
         If gCurva.Exists(dc) And gCurva.Exists(d0s) And cdi.Exists(d0s) Then
             Dim syn As Variant
             syn = BlocoSintetico(cdi(d0s), Val(CStr(hdr("TAXA_REF"))), dCalc, ParseISO(d0s), gCurva(d0s), gCurva(dc))
-            If Not IsEmpty(syn) Then cf = syn: ObtemCfCdi = True: Exit Function
+            If Not IsEmpty(syn) Then
+                If chave <> "" Then gCfCache(chave) = syn
+                cf = syn: ObtemCfCdi = True: Exit Function
+            End If
         End If
     End If
 
