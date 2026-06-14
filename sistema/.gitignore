@@ -16,6 +16,8 @@ venv/
 # Excel temporarios
 ~$*.xls*
 *.xlam
+# add-in distribuivel (commitado p/ os colegas instalarem):
+!dist/RF_Calc.xlam
 
 # Logs e backups locais
 *.log

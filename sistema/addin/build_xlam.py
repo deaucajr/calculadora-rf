@@ -104,6 +104,16 @@ def main():
         excel.Quit()
         time.sleep(1)
 
+    # copia distribuivel p/ sistema/dist (commitado p/ os colegas instalarem)
+    try:
+        import shutil
+        dist = BASE.parent / "dist"
+        dist.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(XLAM, dist / "RF_Calc.xlam")
+        print(f"OK: copia distribuivel em {dist / 'RF_Calc.xlam'}")
+    except Exception as e:
+        print(f"(aviso) nao copiei p/ dist: {e}")
+
     registrar_autoload()
     print("Pronto. Reabra o Excel: o add-in carrega sozinho (funcoes RF_*).")
     return 0

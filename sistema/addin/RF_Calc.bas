@@ -20,7 +20,9 @@ Attribute VB_Name = "RF_Calc"
 ' ============================================================
 Option Explicit
 
-' >>> pasta dos CSV de fluxo (ajuste se mover o projeto) <<<
+' >>> pasta dos CSV de fluxo: DEFAULT (fallback). O caminho real e resolvido em
+'     runtime por FluxosDir() -> variavel de ambiente RF_FLUXOS_DIR, ou o arquivo
+'     %APPDATA%\Microsoft\AddIns\rf_fluxos.txt (escrito pelo instalador), ou este. <<<
 Private Const FLUXOS_DIR As String = _
     "C:\Users\Nitro 5\OneDrive\Documentos\Claude_code\Projeto_calculadora_excel\Codigo_Fluxo\sistema\data\fluxos\"
 Private Const SEP As String = vbTab
@@ -30,6 +32,7 @@ Private gFeriados As Object ' CLng(date) -> True
 Private gCdi As Object      ' data_iso -> CDI diario (fracao); p/ DI-PERC (% do CDI)
 Private gCurva As Object    ' data_iso -> curva DI B3 2D(n,2): [du, taxa_aa]  (_curva_di.csv)
 Private gCfCache As Object  ' "ticker|data_iso" -> bloco sintetico CDI (cache; independe da taxa)
+Private gFluxosDir As String ' caminho resolvido em runtime (cache da sessao)
 
 ' ================= INFRA / LAZY =================
 
@@ -44,10 +47,52 @@ Public Sub RF_ATUALIZAR()
     Set gCdi = Nothing
     Set gCurva = Nothing
     Set gCfCache = Nothing
+    gFluxosDir = ""
     RegistrarFuncoes
-    MsgBox "Cache limpo. Os ativos serao recarregados sob demanda de:" & vbCrLf & FLUXOS_DIR, _
+    MsgBox "Cache limpo. Os ativos serao recarregados sob demanda de:" & vbCrLf & FluxosDir(), _
            vbInformation, "RF Calc"
 End Sub
+
+' Pasta dos CSV resolvida em RUNTIME (nao depende do build), nesta ordem:
+'   1) variavel de ambiente RF_FLUXOS_DIR
+'   2) arquivo %APPDATA%\Microsoft\AddIns\rf_fluxos.txt (1a linha util = caminho)
+'   3) default embutido (FLUXOS_DIR)
+' Assim o MESMO .xlam funciona em qualquer maquina (rede UNC, OneDrive, local).
+Private Function FluxosDir() As String
+    If gFluxosDir <> "" Then FluxosDir = gFluxosDir: Exit Function
+    Dim p As String
+    On Error Resume Next
+    p = Environ$("RF_FLUXOS_DIR")
+    On Error GoTo 0
+    If Trim(p) = "" Then p = LerConfigCaminho()
+    If Trim(p) = "" Then p = FLUXOS_DIR
+    p = Trim(p)
+    If p <> "" And Right$(p, 1) <> "\" And Right$(p, 1) <> "/" Then p = p & "\"
+    gFluxosDir = p
+    FluxosDir = p
+End Function
+
+' Le o caminho de %APPDATA%\Microsoft\AddIns\rf_fluxos.txt (1a linha nao vazia
+' e que nao comece com #). "" se nao existir.
+Private Function LerConfigCaminho() As String
+    Dim cfg As String, fnum As Integer, linha As String
+    cfg = Environ$("APPDATA") & "\Microsoft\AddIns\rf_fluxos.txt"
+    On Error GoTo Fim
+    If Dir(cfg) = "" Then Exit Function
+    fnum = FreeFile
+    Open cfg For Input As #fnum
+    Do While Not EOF(fnum)
+        Line Input #fnum, linha
+        linha = Trim(linha)
+        If linha <> "" And Left$(linha, 1) <> "#" Then
+            LerConfigCaminho = linha
+            Exit Do
+        End If
+    Loop
+Fim:
+    On Error Resume Next
+    Close #fnum
+End Function
 
 Private Sub GaranteFeriados()
     If Not gFeriados Is Nothing Then Exit Sub
@@ -55,7 +100,7 @@ Private Sub GaranteFeriados()
     Dim fnum As Integer, linha As String, d As Date
     On Error GoTo Fim
     fnum = FreeFile
-    Open FLUXOS_DIR & "_feriados.csv" For Input As #fnum
+    Open FluxosDir() & "_feriados.csv" For Input As #fnum
     Do While Not EOF(fnum)
         Line Input #fnum, linha
         linha = Trim(linha)
@@ -75,7 +120,7 @@ Private Sub GaranteCdi()
     Dim fnum As Integer, linha As String, p() As String
     On Error GoTo Fim
     fnum = FreeFile
-    Open FLUXOS_DIR & "_cdi.csv" For Input As #fnum
+    Open FluxosDir() & "_cdi.csv" For Input As #fnum
     Do While Not EOF(fnum)
         Line Input #fnum, linha
         p = Split(linha, SEP)
@@ -103,7 +148,7 @@ End Function
 '   cdi = Dictionary data_iso -> fluxos2D(n,4): [dataEvento, vf, pv, du]  (so p/ CDI)
 Private Function CarregarAtivo(ticker As String) As Boolean
     Dim tk As String: tk = UCase(Trim(ticker))
-    Dim caminho As String: caminho = FLUXOS_DIR & tk & ".csv"
+    Dim caminho As String: caminho = FluxosDir() & tk & ".csv"
     If Dir(caminho) = "" Then Exit Function
 
     Dim hdr As Object: Set hdr = CreateObject("Scripting.Dictionary")
@@ -224,7 +269,7 @@ Private Sub GaranteCurva()
     Dim fnum As Integer, linha As String, p() As String
     On Error GoTo Fim
     fnum = FreeFile
-    Open FLUXOS_DIR & "_curva_di.csv" For Input As #fnum
+    Open FluxosDir() & "_curva_di.csv" For Input As #fnum
     Do While Not EOF(fnum)
         Line Input #fnum, linha
         p = Split(linha, SEP)
@@ -834,14 +879,14 @@ End Function
 Public Function RF_LISTAR() As Variant
     Dim arr() As String, n As Long, f As String
     ReDim arr(1 To 10000)
-    f = Dir(FLUXOS_DIR & "*.csv")
+    f = Dir(FluxosDir() & "*.csv")
     Do While f <> ""
         If Left(f, 1) <> "_" Then
             n = n + 1: arr(n) = Left(f, Len(f) - 4)
         End If
         f = Dir()
     Loop
-    If n = 0 Then RF_LISTAR = "nenhum ativo em " & FLUXOS_DIR: Exit Function
+    If n = 0 Then RF_LISTAR = "nenhum ativo em " & FluxosDir(): Exit Function
     Dim out() As Variant: ReDim out(1 To n, 1 To 1)
     Dim i As Long
     For i = 1 To n
