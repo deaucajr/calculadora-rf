@@ -1,10 +1,9 @@
-# Credenciais (NUNCA versionar - contem login/senha da API)
+# Credenciais (NUNCA versionar)
 config.json
 credenciais.txt
 
-# Dados gerados (regeneraveis; nao versionar - exceto o README)
-data/*
-!data/README.md
+# Dados locais (regeneraveis; gerados pela rotina diaria)
+data/
 
 # Python
 __pycache__/
@@ -13,12 +12,19 @@ __pycache__/
 venv/
 *.egg-info/
 
-# Excel temporarios
+# Excel temporarios e artefatos locais
 ~$*.xls*
 *.xlam
-# add-in distribuivel (commitado p/ os colegas instalarem):
-!dist/RF_Calc.xlam
 
-# Logs e backups locais
+# O add-in compilado fica em dist/ e e versionado
+!dist/RF_Calc.xlam.bin
+
+# Logs e backups
 *.log
 *.reg
+
+# Arquivos temporarios de analise
+data/swap_*.xlsx
+data/dashboard.xlsx
+data/email_*.html
+data/email_*.txt

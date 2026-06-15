@@ -1,13 +1,27 @@
 """
-RF_Calc — Instalador completo
-Instala o add-in Excel e configura todo o sistema de dados
-(feriados, CDI, curva B3, debentures/CRIs/CRAs).
+RF_Calc — Instalador rapido (requer internet e acesso ao GitHub)
+================================================================
+
+O que faz:
+  1. Instala o add-in RF_Calc.xlam no Excel (registro automatico)
+  2. Baixa o projeto do GitHub para C:\\Users\\<voce>\\RF_Calc
+  3. Instala as dependencias Python (pip)
+  4. Baixa dados publicos (feriados, CDI diario, curva DI B3)
+  5. Importa os fluxos de todos os ativos (DEB, CRI, CRA) — requer credenciais
 
 Uso:
-  python instalar.py              -- instala tudo (sem importar ativos)
-  python instalar.py --importar   -- instala + importa debentures/CRIs/CRAs
+  python instalar.py              # instala tudo (sem importar ativos)
+  python instalar.py --importar   # instala + importa fluxos via API
 
-Prerequisitos: Python 3.8+, Excel fechado, internet.
+Pre-requisitos:
+  - Python 3.8+
+  - Excel instalado e FECHADO
+  - Conexao com a internet
+  - (para --importar) credenciais da API calculadorarendafixa.com.br
+
+Se voce NAO tem acesso a internet no computador destino:
+  Use o instalador autossuficiente (instalar_offline.py) gerado pelo
+  script tools/gerar_instalador_offline.py
 """
 import os
 import sys
@@ -28,8 +42,6 @@ OK, FALHA, PULAR = "[ OK ]", "[FALHA]", "[PULAR]"
 def passo(n, titulo):
     print(f"\n{'='*60}\n{n}. {titulo}\n{'='*60}")
 
-
-# ---------- 1. Add-in Excel ----------
 
 def versao_excel():
     for v in ("16.0", "15.0", "14.0"):
@@ -52,11 +64,11 @@ def instalar_addin():
         return False
 
     dist = Path(__file__).resolve().parent
-    origem = (dist / "RF_Calc.xlam.bin"
-              if (dist / "RF_Calc.xlam.bin").exists()
-              else dist / "RF_Calc.xlam")
-    if not origem.exists():
-        print(FALHA, f"Arquivo do add-in nao encontrado em: {dist}")
+    xlam_bin = dist / "RF_Calc.xlam.bin"
+    xlam     = dist / "RF_Calc.xlam"
+    origem   = xlam_bin if xlam_bin.exists() else xlam if xlam.exists() else None
+    if origem is None:
+        print(FALHA, f"RF_Calc.xlam.bin nao encontrado em: {dist}")
         return False
 
     addins = Path(os.environ["APPDATA"]) / "Microsoft" / "AddIns"
@@ -73,31 +85,30 @@ def instalar_addin():
     return True
 
 
-# ---------- 2. Baixar projeto ----------
-
 def baixar_projeto():
     passo(2, "Baixando projeto do GitHub")
     print(f"Destino: {INSTALL_DIR}")
 
     if INSTALL_DIR.exists() and (INSTALL_DIR / "requirements.txt").exists():
-        print(OK, "projeto ja instalado, pulando download")
+        print(OK, "projeto ja instalado (pulando download)")
         return True
 
-    print("Baixando... (pode demorar alguns segundos)")
+    print("Baixando... (alguns segundos)")
     try:
         tmp_zip = Path(tempfile.mktemp(suffix=".zip"))
         urllib.request.urlretrieve(REPO_ZIP, tmp_zip)
         print(OK, "download concluido")
     except urllib.error.URLError as e:
-        print(FALHA, f"Nao foi possivel baixar do GitHub: {e}")
-        print("       Verifique a conexao com a internet e tente de novo.")
+        print(FALHA, f"sem acesso ao GitHub: {e}")
+        print("       Verifique a conexao e tente de novo.")
+        print("       Sem internet? Use o instalador offline: instalar_offline.py")
         return False
 
     try:
         with tempfile.TemporaryDirectory() as tmpdir:
             with zipfile.ZipFile(tmp_zip, "r") as z:
                 z.extractall(tmpdir)
-            extraido = next(Path(tmpdir).iterdir())  # calculadora-rf-main/
+            extraido = next(Path(tmpdir).iterdir())
             if INSTALL_DIR.exists():
                 shutil.rmtree(INSTALL_DIR)
             shutil.copytree(extraido / "sistema", INSTALL_DIR)
@@ -105,68 +116,31 @@ def baixar_projeto():
         print(OK, f"projeto instalado em {INSTALL_DIR}")
         return True
     except Exception as e:
-        print(FALHA, f"Erro ao extrair: {e}")
+        print(FALHA, f"erro ao extrair: {e}")
         return False
 
 
-# ---------- 3. Dependencias ----------
-
 def instalar_dependencias():
-    passo(3, "Instalando dependencias Python (pip)")
+    passo(3, "Instalando dependencias Python")
     req = INSTALL_DIR / "requirements.txt"
     if not req.exists():
         print(FALHA, "requirements.txt nao encontrado")
         return False
-    r = subprocess.run(
-        [sys.executable, "-m", "pip", "install", "-r", str(req)],
-        capture_output=True, text=True
-    )
+    r = subprocess.run([sys.executable, "-m", "pip", "install", "-r", str(req)],
+                       capture_output=True, text=True)
     if r.returncode == 0:
         print(OK, "dependencias instaladas")
         return True
-    print(FALHA, "pip retornou erro:\n", r.stderr[-600:])
+    print(FALHA, r.stderr[-600:])
     return False
 
 
-# ---------- 4. Caminho dos dados ----------
+def configurar_dados():
+    passo(4, "Criando banco e baixando dados publicos (CDI, curva B3)")
+    fluxos = INSTALL_DIR / "data" / "fluxos"
+    fluxos.mkdir(parents=True, exist_ok=True)
+    (INSTALL_DIR / "data" / "fluxos_manual").mkdir(parents=True, exist_ok=True)
 
-def configurar_caminho_dados():
-    passo(4, "Configurando caminho da pasta de dados")
-    addins = Path(os.environ["APPDATA"]) / "Microsoft" / "AddIns"
-    cfg = addins / "rf_fluxos.txt"
-
-    if cfg.exists():
-        dados = cfg.read_text(encoding="utf-8").strip().splitlines()[0]
-        print(OK, f"caminho ja configurado: {dados}")
-        return dados
-
-    dados_default = str(INSTALL_DIR / "data" / "fluxos")
-    print(f"Pasta sugerida para os dados: {dados_default}")
-    resp = input("Pressione Enter para aceitar ou cole outro caminho: ").strip().strip('"')
-    dados = resp if resp else dados_default
-
-    Path(dados).mkdir(parents=True, exist_ok=True)
-    addins.mkdir(parents=True, exist_ok=True)
-    cfg.write_text(dados, encoding="utf-8")
-    print(OK, f"caminho configurado: {dados}")
-
-    # Pastas irmas
-    try:
-        pai = Path(dados).parent
-        for sub in ("fluxos_manual", "fluxos_antigo"):
-            (pai / sub).mkdir(parents=True, exist_ok=True)
-    except Exception:
-        pass
-
-    return dados
-
-
-# ---------- 5. Banco + dados publicos ----------
-
-def configurar_sistema(fluxos_dir):
-    passo(5, "Criando banco de dados e baixando dados publicos")
-
-    Path(fluxos_dir).mkdir(parents=True, exist_ok=True)
     sys.path.insert(0, str(INSTALL_DIR))
     sys.path.insert(0, str(INSTALL_DIR / "scripts"))
 
@@ -194,74 +168,64 @@ def configurar_sistema(fluxos_dir):
     try:
         from src.sync_b3_curve import sync_curva_di
         sync_curva_di()
-        print(OK, "curva B3 atualizada")
+        print(OK, "curva DI B3 atualizada")
     except Exception as e:
         print(FALHA, f"curva B3: {e}")
 
+    # Aponta o add-in para a pasta de fluxos correta
+    cfg = Path(os.environ["APPDATA"]) / "Microsoft" / "AddIns" / "rf_fluxos.txt"
+    cfg.write_text(str(fluxos), encoding="utf-8")
+    print(OK, f"add-in apontando para: {fluxos}")
 
-# ---------- 6. Debentures / CRIs / CRAs ----------
 
-def importar_debentures():
-    passo(6, "Importando debentures/CRIs/CRAs da API")
-
+def importar_ativos():
+    passo(5, "Importando ativos da API (DEB, CRI, CRA)")
     cred = INSTALL_DIR / "credenciais.txt"
-    exemplo = INSTALL_DIR / "credenciais.txt.exemplo"
-
     if not cred.exists():
-        print(PULAR, "sem credenciais da API.")
-        if exemplo.exists():
-            print(f"  1) Abra e renomeie: {exemplo}")
-            print(f"     -> {cred}")
-            print("  2) Preencha login e senha")
-            print("  3) Rode de novo: python instalar.py --importar")
-        else:
-            print(f"  Crie o arquivo {cred} com login e senha da API.")
+        print(PULAR, "credenciais nao encontradas.")
+        print(f"  1. Copie e renomeie: credenciais.txt.exemplo -> credenciais.txt")
+        print(f"     Pasta: {INSTALL_DIR}")
+        print("  2. Preencha login e senha")
+        print("  3. Rode de novo: python instalar.py --importar")
         return
 
     try:
-        sys.path.insert(0, str(INSTALL_DIR))
-        sys.path.insert(0, str(INSTALL_DIR / "scripts"))
-        from importar_todos import main as importar_main
-        importar_main(["deb", "cri", "cra"])
-        print(OK, "ativos importados")
+        from importar_todos import main as m
+        m(["deb", "cri", "cra"])
+        print(OK, "fluxos importados")
     except Exception as e:
         print(FALHA, e)
 
 
-# ---------- main ----------
-
 def main():
     importar = "--importar" in sys.argv
-    print("RF_Calc — INSTALADOR COMPLETO")
+    print("RF_Calc — INSTALADOR")
     print(f"Python: {sys.version.split()[0]}")
-    print(f"Instalando em: {INSTALL_DIR}")
+    print(f"Destino: {INSTALL_DIR}")
 
     addin_ok   = instalar_addin()
     projeto_ok = baixar_projeto()
 
     if not projeto_ok:
-        print("\n[ATENCAO] Nao foi possivel baixar o projeto.")
-        print("          Verifique a internet e tente de novo.")
+        print("\n[!] Nao foi possivel baixar o projeto. Verifique a internet.")
         input("\nPressione Enter para sair...")
         return
 
     instalar_dependencias()
-    fluxos_dir = configurar_caminho_dados()
-    configurar_sistema(fluxos_dir)
+    configurar_dados()
 
     if importar:
-        importar_debentures()
+        importar_ativos()
     else:
-        print(f"\n{PULAR} Importacao de ativos nao solicitada.")
-        print("       Para importar debentures/CRIs/CRAs, rode:")
-        print(f"         python {Path(__file__).name} --importar")
+        print(f"\n{PULAR} Para importar os fluxos dos ativos, rode:")
+        print(f"       python {Path(__file__).name} --importar")
 
     print("\n" + "="*60)
     print("INSTALACAO CONCLUIDA.")
     if addin_ok:
-        print(">> Reabra o Excel: as funcoes RF_* carregam sozinhas.")
+        print(">> Reabra o Excel — as funcoes RF_* carregam sozinhas.")
     print(">> Teste numa celula: =RF_LISTAR()")
-    print(f">> Projeto instalado em: {INSTALL_DIR}")
+    print(f">> Projeto em: {INSTALL_DIR}")
     print("="*60)
     input("\nPressione Enter para sair...")
 

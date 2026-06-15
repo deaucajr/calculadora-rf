@@ -1,171 +1,240 @@
-# Calculadora de Renda Fixa (RF_Calc)
+# RF_Calc — Calculadora de Renda Fixa
 
-Sistema para **precificar localmente** debêntures, CRIs e CRAs (IPCA, PRÉ, CDI+spread e %CDI)
-sem bater na API a cada consulta. Os fluxos de caixa são baixados uma vez da
-[calculadorarendafixa.com.br](https://calculadorarendafixa.com.br) (CALC/B3) e o cálculo
-roda offline — em Python ou direto no **Excel** via add-in com funções `RF_*`.
+Add-in Excel para precificar debentures, CRIs e CRAs diretamente na planilha,
+sem depender de sistemas externos no momento do calculo.
+Os dados sao importados uma vez (ou atualizados pela rotina diaria) e ficam
+armazenados localmente em CSVs; o add-in le esses arquivos em milissegundos.
 
-Validado contra a API: **80/80** (5 papéis de cada tipo × 4 datas) batendo até ~1e-5.
+---
 
-## Estrutura
+## Estrutura de pastas
 
 ```
-.
-├── src/         # biblioteca Python: api_client, db, sync_bacen, ...
-├── scripts/     # executaveis: importar, importar_todos, rotina_diaria, validar, ...
-├── addin/       # add-in Excel: RF_Calc.bas + build_xlam.py
-├── docs/        # documentacao (arquitetura, referencia das formulas)
-├── data/        # GERADO (gitignored): rf.db, fluxos/*.csv, _cdi.csv, _feriados.csv
-├── _legado/     # versoes antigas (dashboard, CLI, xlwings) — referencia historica
-├── config.json  # GITIGNORED — ajustes (base_url, BACEN, fluxos_dir, ...)
-├── credenciais.txt # GITIGNORED — login/senha da CALC (so p/ importar fluxos)
-└── requirements.txt
+sistema/
+├── README.md               # este arquivo
+├── requirements.txt        # dependencias Python
+├── credenciais.txt.exemplo # modelo para criar credenciais.txt (nunca versionar)
+├── config.example.json     # modelo para config.json            (nunca versionar)
+├── setup.py                # setup inicial apos git clone
+│
+├── addin/                  # Add-in Excel (VBA + builder)
+│   ├── RF_Calc.bas         # codigo VBA completo do add-in
+│   └── build_xlam.py       # compila RF_Calc.bas -> dist/RF_Calc.xlam.bin
+│
+├── src/                    # Biblioteca Python (nucleo do sistema)
+│   ├── api_client.py       # cliente da API calculadorarendafixa.com.br
+│   ├── calc.py             # calculo de PU/taxa/duration em Python
+│   ├── db.py               # banco SQLite (esquema e helpers)
+│   ├── paths.py            # resolucao de caminhos (fluxos_dir, etc.)
+│   ├── sync_bacen.py       # baixa CDI diario do BACEN (publico)
+│   ├── sync_b3_curve.py    # baixa curva DI x Pre da B3 (publico)
+│   ├── sync_bonds.py       # sincroniza cadastro de ativos
+│   ├── sync_flows.py       # sincroniza fluxos de ativos
+│   └── vna.py              # calculo de VNA (IPCA, CDI, PRE)
+│
+├── scripts/                # Scripts operacionais (uso direto no terminal)
+│   ├── rotina_diaria.py         # ** roda todo dia ** -- atualiza CDI, curva, IPCA
+│   ├── importar_fluxos.py       # importa fluxos de um ticker especifico
+│   ├── importar_todos.py        # importa todos os DEB/CRI/CRA de uma vez
+│   ├── atualizar_pela_b3.py     # re-importa ativos com mudanca na B3
+│   ├── atualizar_ipca.py        # atualiza historico IPCA (BACEN + projecao ANBIMA)
+│   ├── atualizar_amortpct.py    # recalcula AMORTPCT dos ativos IPCA amortizantes
+│   ├── gerar_ipca.py            # gera _ipca.csv com fatores diarios de correcao
+│   ├── verificar_cadastro.py    # lista ativos B3 que ainda nao foram importados
+│   ├── verificar_mudancas.py    # detecta ativos com fluxo alterado na B3
+│   ├── corrigir_csvs.py         # corrige inconsistencias nos CSVs locais
+│   ├── inserir_manual.py        # adiciona ativo manualmente (sem API)
+│   ├── importar_planilha.py     # importa fluxos de uma planilha Excel
+│   ├── gerar_template_ativo.py  # gera planilha-template para inserir ativo manual
+│   ├── importar_curva_bloomberg.py  # importa curva DI de arquivo Bloomberg
+│   ├── importar_curva_historica.py  # importa curva DI historica (varios dias)
+│   ├── breakeven.py             # analise de breakeven IPCA vs PRE vs CDI
+│   ├── gerar_planilha_swap.py   # gera planilha de swap CDI x IPCA
+│   ├── validar.py               # valida PU local vs API (amostra)
+│   ├── validar_massa.py         # valida PU de 50 tickers x 5 datas vs API
+│   └── validar_curva.py         # valida curva DI local vs API
+│
+├── dist/                   # Arquivos de distribuicao (versionados)
+│   ├── RF_Calc.xlam.bin    # add-in compilado (renomeado de .xlam para passar pelo Gmail)
+│   ├── CADASTRO_ATIVO.xlsx # planilha-template para inserir ativos manualmente
+│   └── instalar.py         # instalador rapido (requer internet/GitHub)
+│
+└── data/                   # Dados locais -- NAO versionados (git-ignored)
+    ├── rf.db               # banco SQLite com cadastro e historico
+    ├── fluxos/             # CSVs de cada ativo + arquivos globais:
+    │   ├── _feriados.csv       # calendario de feriados ANBIMA
+    │   ├── _cdi.csv            # CDI diario (BACEN)
+    │   ├── _ipca.csv           # fatores diarios de correcao IPCA
+    │   ├── _curva_di.csv       # curva DI x Pre da B3
+    │   └── <TICKER>.csv        # fluxo de cada ativo (ex: EGIEA6.csv)
+    └── fluxos_manual/      # CSVs inseridos manualmente (nao sobrescritos pela API)
 ```
 
-### Onde ficam os CSV de fluxo (`fluxos_dir`)
+---
 
-**Fonte única:** defina a pasta UMA vez em `config.json` → `"fluxos_dir"`. Vale para
-os scripts (gravar/ler) **e** para o add-in — ao rodar `build_xlam.py`/`setup.py`, o
-caminho é **propagado automaticamente** para onde o add-in lê (`rf_fluxos.txt` desta
-máquina e, se for caminho compartilhado, `dist/rf_fluxos_dir.txt` dos colegas).
+## Instalacao rapida (com internet / GitHub)
 
-```json
-{ "fluxos_dir": "C:/Users/voce/OneDrive/RF/fluxos" }   // ou "\\\\servidor\\rf\\fluxos"
+Pre-requisitos: Python 3.8+, Excel instalado, Excel **fechado**.
+
 ```
-Em branco (`""`) usa o padrão `data/fluxos/`. Aplicar sem rebuild:
-`python -m src.paths`.
+# 1. Clone o repositorio
+git clone https://github.com/deaucajr/calculadora-rf.git
+cd calculadora-rf/sistema
 
-**Manual × automático × antigo:** os ativos da B3 ficam em `fluxos/` (automático);
-os criados à mão em `fluxos_manual/` (pasta irmã). O add-in lê as duas (automático
-tem prioridade). Ao rodar `atualizar_pela_b3.py TICKER`, o fluxo oficial vai para
-`fluxos/` e o manual é movido para `fluxos_antigo/` (histórico). Crie manuais com
-`inserir_manual.py` — ele garante o fim de linha **CRLF** (o add-in não lê CSV em
-LF puro).
-
-## Instalação — comando único
-
-Depois de clonar o repositório, com o **Excel fechado**, rode **um** comando:
-
-```powershell
-cd sistema
+# 2. Execute o setup (instala deps, banco, CDI, curva, add-in)
 python setup.py
+
+# 3. Reabra o Excel -- as funcoes RF_* ja aparecem
 ```
-(ou dê **duplo-clique em `setup.bat`**)
 
-Isso faz tudo sozinho: instala dependências, cria o banco, gera o calendário de
-feriados, baixa o **CDI** (BACEN) e a **curva DI×Pré da B3** (`data/fluxos/_curva_di.csv`)
-e constrói/instala o add-in `RF_Calc.xlam`. Reabra o Excel e use as funções `RF_*`.
+Para importar os fluxos de todos os ativos (requer credenciais da API):
 
-Os dados públicos (feriados, CDI, curva B3) já bastam para o add-in calcular. Para
-baixar também os **fluxos de cada ativo** (precisa de login/senha da CALC), coloque
-suas credenciais num txt simples e rode uma vez:
+```
+# Configure as credenciais (copie e renomeie o exemplo)
+copy credenciais.txt.exemplo credenciais.txt
+# edite credenciais.txt com seu login e senha
 
-```powershell
-ren credenciais.txt.exemplo credenciais.txt   # depois edite login/senha nele
 python setup.py --importar
 ```
 
-> O `credenciais.txt` é lido na hora do import e **não vai para o git** (está no
-> `.gitignore`). Ele tem prioridade sobre o `config.json`, então o login/senha fica
-> só nesse txt — não precisa colocar credenciais no `config.json`.
+---
 
-<details><summary>Instalação manual (passo a passo)</summary>
+## Instalacao sem internet (ambientes restritos)
 
-```powershell
-pip install -r requirements.txt
-copy config.example.json config.json               # ajustes (base_url, BACEN, ...)
-ren credenciais.txt.exemplo credenciais.txt        # login/senha da CALC (so p/ import)
-python scripts/importar_fluxos.py --feriados      # gera data/fluxos/_feriados.csv
-python -m src.sync_b3_curve                        # baixa a curva DI x Pre da B3
-python addin/build_xlam.py                         # gera o .xlam
+Use o instalador autossuficiente gerado pelo script `tools/gerar_instalador_offline.py`.
+Ele empacota o add-in + todos os CSVs + scripts num unico arquivo `.py` de ~4 MB
+que nao precisa de GitHub, internet, nem APIs.
+
 ```
-</details>
+# No computador que TEM internet:
+python tools/gerar_instalador_offline.py
+# Gera: Downloads/instalar_offline.py  (~4 MB, autossuficiente)
 
-## Uso
-
-```powershell
-# importar 1 ativo (numa data; CDI acumula multiplas datas)
-python scripts/importar_fluxos.py EGIEA6 2026-06-12
-
-# importar TODOS da B3 (deb+cri+cra; resume + delays)
-python scripts/importar_todos.py
-
-# CONFERIR se todo o universo da CALC/B3 esta cadastrado no seu PC
-python scripts/verificar_cadastro.py            # so relata o que falta
-python scripts/verificar_cadastro.py --baixar   # baixa SO os que faltam
-
-# DETECTAR fluxos que mudaram (sem re-importar tudo; usa so getbonddetails,
-# por rodizio em lotes -> poucas chamadas por execucao)
-python scripts/verificar_mudancas.py            # checa um lote e relata mudancas
-python scripts/verificar_mudancas.py --atualizar # re-importa SO os que mudaram
-python scripts/verificar_mudancas.py --todos    # varre tudo de uma vez (pesado)
-
-# ATIVOS MANUAIS (pasta separada) e e-mail-resumo
-python scripts/inserir_manual.py --template ABC # cria esqueleto em fluxos_manual/
-python scripts/atualizar_pela_b3.py ABC         # baixa ABC da B3 -> fluxos/, move manual->antigo
-python scripts/gerar_email.py                   # gera data/email_resumo.html/.txt
-
-# IPCA 3x/dia (cobre a divulgacao). PADRAO = so publico (BACEN + ANBIMA), SEM calc API
-agendar_ipca.bat                                # duplo-clique: agenda 10h/12h/17h
-python scripts/atualizar_ipca.py                # historico BACEN + projecao ANBIMA (publico)
-python scripts/atualizar_ipca.py --refresh-ativos  # EXTRA: VNA exata via calc API (so mes novo)
-
-# corrigir classificacao IPCA/CDI sem API (apos importacao em massa)
-python scripts/corrigir_csvs.py
-
-# validar contra a API (5 de cada tipo x 4 datas)
-python scripts/validar.py
-
-# rotina diaria (LEVE por padrao: CDI+curva publicos + ativos novos + refresh
-# mensal de IPCA so quando sai mes novo + rodizio de mudanca de fluxo)
-python scripts/rotina_diaria.py            # leve (recomendada no dia a dia)
-python scripts/rotina_diaria.py --completo # re-importa TODOS p/ hoje (pesado; raro)
-python scripts/rotina_diaria.py --agendar  # agenda a leve (7h30, dias uteis)
+# Copie instalar_offline.py para o computador sem internet e execute:
+python instalar_offline.py
 ```
 
-### Add-in Excel
+---
 
-```powershell
-python addin/build_xlam.py   # gera RF_Calc.xlam em %APPDATA%\Microsoft\AddIns e registra auto-load
+## Uso diario
+
+**Atualizar dados toda manha (antes de abrir o Excel):**
+
 ```
-Requer "Confiar no acesso ao modelo de objeto VBA" habilitado temporariamente
-(o script avisa). No Excel as funções carregam sozinhas. Veja `docs/REFERENCIA.md`.
+python scripts/rotina_diaria.py
+```
 
-**Funções disponíveis** (taxa em % a.a.; data obrigatória onde se aplica):
-`RF_PU` · `RF_TAXA` · `RF_DURATION` · `RF_DV01` · `RF_CONVEXIDADE` · `RF_VNA` ·
-`RF_FLUXO` · `RF_VENCIMENTO(ticker)` · `RF_ATUALIZADO_EM(ticker)` (data do último
-import) · `RF_PROXIMO_EVENTO(ticker,data)` · `RF_SPREAD(ticker)` (spread/%CDI/taxa
-de referência) · `RF_INFO(ticker,campo)` · `RF_LISTAR()`.
+O que a rotina faz:
+- Baixa o CDI do dia do BACEN
+- Atualiza a curva DI x Pre da B3
+- Atualiza projecao IPCA (ANBIMA)
+- Gera novos fatores diarios `_ipca.csv`
+- Reimporta ativos com mudanca de fluxo detectada na B3
 
-**DI futuro** (zero-cupom): `RF_DI_PU(venc;taxa;data)` · `RF_DI_TAXA(venc;pu;data)` ·
-`RF_DI_DV01(venc;taxa;data)` · `RF_DI_DURATION(venc;data)` · `RF_DI_CURVA(venc;data)`
-(taxa da curva B3 no vencimento).
+**Importar um ativo novo:**
 
-**Códigos:** o `venc` aceita data **ou** código: DI como `"DI1F30"` (F=jan…Z=dez,
-1º dia útil do mês) e NTN-B como `"NTN-B 30"`/`"NTNB30"` (vencimento padrão 15/05 ou
-15/08). `RF_VENC_CODIGO(codigo)` devolve a data. Validado vs Tesouro/B3 (PU bate ~0,0%).
+```
+python scripts/importar_fluxos.py EGIEA6
+```
 
-**NTN-B** (Tesouro IPCA+, cupom 6% a.a.): `RF_NTNB_PU(venc;taxa;data;vna)` ·
-`RF_NTNB_TAXA(venc;pu;data;vna)` · `RF_NTNB_COTACAO(venc;taxa;data)` (% sem VNA) ·
-`RF_NTNB_DV01(venc;taxa;data;vna)` · `RF_NTNB_DURATION(venc;taxa;data)`. O `vna` é o
-VNA do dia (ANBIMA/Tesouro). `venc` = 15/05 ou 15/08 do ano.
+**Ver quais ativos ainda nao foram importados:**
 
-> **Caminho dos dados no add-in**: o `build_xlam.py` reescreve automaticamente a
-> constante `FLUXOS_DIR` para a pasta `data/fluxos/` desta máquina no momento do build.
-> Ao mover o projeto ou clonar em outra máquina, basta rodar o `setup.py` (ou
-> `build_xlam.py`) de novo — não precisa editar o `.bas`.
+```
+python scripts/verificar_cadastro.py
+python scripts/verificar_cadastro.py --baixar   # baixa os que faltam
+```
 
-## Como funciona (resumo)
+---
 
-- **IPCA/PRÉ**: `PU = [Σ FC%/(1+taxa)^(du/252)] × VNA(data)`. FC% independe da data → 1 download serve para qualquer taxa/data.
-- **CDI+spread**: ajuste de spread sobre o PV salvo.
-- **%CDI (DI-PERC)**: reconstrói a **curva DI implícita** (`FD = VF/PV`) de cada papel e reprecifica — exato, sem baixar curva externa.
-- **IPCA+**: a VNA vem dos pontos gravados; **fora desse intervalo** (datas passadas/futuras) o add-in calcula a VNA pelo **fator do IPCA** (`_ipca.csv`, gerado por `gerar_ipca.py` do BACEN+ANBIMA, público) ancorado no último ponto — `VNA(data)=VNA_âncora×fator(data)/fator(âncora)`. Assim atualizar só o IPCA mantém a VNA correta em qualquer data (erro ~0,2% vs vários % na extrapolação antiga).
+## Funcoes do add-in Excel
 
-Detalhes completos em [`docs/arquitetura.md`](docs/arquitetura.md).
+Todas as funcoes recebem `taxa` em **% a.a.** e `data` no formato da sua planilha
+(numero serial de data ou texto DD/MM/AAAA).
 
-## Aviso
+| Funcao | Descricao |
+|--------|-----------|
+| `=RF_PU(ticker; taxa; data)` | PU do ativo na data dada a taxa |
+| `=RF_TAXA(ticker; pu; data)` | Taxa implicita dado o PU |
+| `=RF_DURATION(ticker; taxa; data)` | Duration de Macaulay (anos) |
+| `=RF_DV01(ticker; taxa; data)` | DV01 em R$ por 1 bp |
+| `=RF_CONVEXIDADE(ticker; taxa; data)` | Convexidade |
+| `=RF_VNA(ticker; data)` | VNA na data (corrigido por IPCA quando aplicavel) |
+| `=RF_FLUXO(ticker; taxa; data)` | Tabela de fluxos descontados |
+| `=RF_VENCIMENTO(ticker)` | Data de vencimento |
+| `=RF_ATUALIZADO_EM(ticker)` | Data da ultima importacao de fluxos |
+| `=RF_PROXIMO_EVENTO(ticker; data)` | Proximo cupom/amortizacao apos a data |
+| `=RF_SPREAD(ticker)` | Spread/taxa de emissao contratual |
+| `=RF_INFO(ticker; campo)` | Campo do cabecalho (EMISSOR, INDEXADOR...) |
+| `=RF_LISTAR()` | Lista todos os ativos com CSV disponivel |
+| `=RF_YTC(ticker; pu; data; dataCall)` | Yield to Call |
+| `=RF_YTW(ticker; pu; data)` | Yield to Worst |
+| `=RF_DI_PU(venc; taxa; data)` | PU do DI futuro |
+| `=RF_DI_TAXA(venc; pu; data)` | Taxa do DI futuro dado o PU |
+| `=RF_NTNB_PU(venc; taxa; data; vna)` | PU da NTN-B |
+| `=RF_NTNB_TAXA(venc; pu; data; vna)` | Taxa real da NTN-B dado o PU |
 
-As credenciais ficam em `credenciais.txt` (login/senha da CALC) — está no `.gitignore`,
-preenchido à mão, **fora** do `config.json`. A pasta `data/` é regenerável e também não
-é versionada. Seja moderado no volume de chamadas à API.
+**Macro utilitaria:** `Alt+F8 -> RF_ATUALIZAR` limpa o cache do add-in e forca
+releitura dos CSVs (use apos rodar a rotina diaria ou importar novos ativos).
+
+---
+
+## Modelo de dados -- formato do CSV
+
+Cada ativo tem um arquivo `data/fluxos/<TICKER>.csv` com tres tipos de linha:
+
+```
+META    TICKER      EGIEA6
+META    INDEXADOR   IPCA
+META    EMISSOR     EGL INDUSTRIA E COMERCIO SA
+META    VENCIMENTO  2031-06-15
+META    TAXA_REF    6.2474
+META    DATA_FLUXO  2026-06-13
+FLUXO   2026-12-15  CUPOM   6.2474  0  252  0.030463
+FLUXO   2027-06-15  CUPOM   6.2474  0  504  0.030463
+VNA     2026-06-13  1234.567890
+```
+
+Para ativos CDI ha tambem linhas `FLUXOD` (fluxo com desconto DI embutido)
+e `AMORTPCT` (percentual de amortizacao para IPCA amortizantes).
+
+---
+
+## Reconstruir o add-in apos editar o VBA
+
+```
+# 1. Edite addin/RF_Calc.bas
+# 2. Feche o Excel
+python addin/build_xlam.py
+# 3. Reabra o Excel
+```
+
+O `build_xlam.py` gera `dist/RF_Calc.xlam.bin` (versionado) e instala o
+add-in em `%APPDATA%\Microsoft\AddIns\RF_Calc.xlam` automaticamente.
+
+---
+
+## Credenciais
+
+A API `calculadorarendafixa.com.br` requer login/senha.
+
+```
+copy credenciais.txt.exemplo credenciais.txt
+# Edite credenciais.txt com seu login e senha (arquivo fica fora do git)
+```
+
+O `config.json` (tambem fora do git) substitui `credenciais.txt` com
+configuracoes adicionais. Veja `config.example.json` para o formato.
+
+---
+
+## Validacao
+
+Para confirmar que os PUs calculados batem com a B3:
+
+```
+python scripts/validar.py               # amostra de 5 ativos por tipo
+python scripts/validar_massa.py         # 50 tickers x 5 datas por tipo
+python scripts/validar_massa.py --tipo DEB --n 20
+```
+
+Resultado esperado: >= 99% dos PUs dentro de R$ 0,01 de tolerancia.
