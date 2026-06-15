@@ -2,7 +2,7 @@
 tipo: projeto
 tags: [renda-fixa, excel, vba, addin, debentures, cri, cra, B3]
 fontes: []
-atualizado: 2026-06-13
+atualizado: 2026-06-14
 ---
 
 # Add-in Excel de Renda Fixa (RF_Calc)
@@ -93,15 +93,46 @@ Macros: `RF_ATUALIZAR` (limpa cache), `RF_EXPORTAR` (planilha VF→PV p/ enviar)
   Resume (pula os ja feitos hoje), delay 0.4s, log em data/import_massa.log.
 - `python rotina_diaria.py --agendar` — tarefa 7h30 seg-sex (detecta novos + atualiza).
 
-## Curva DI (resolvido via curva implicita)
+## VNA com amortizacoes (IPCA+)
 
-Os endpoints da B3 (taxas referenciais / TxRef1 / ajustes) estao mortos (404) ou viraram
-pagina JS. **Solucao**: nao foi preciso baixar a curva — ela esta IMPLICITA nos PV que a
-B3 ja devolve em cada papel DI-PERC (`FD_i = VF_i/PV_i`). Reconstruimos a curva forward
-por papel e reprecificamos a qualquer percentual com exatidao (~1e-5). Ver `PvCdi`.
-Limitacao: so nas datas importadas (cada data tem sua curva). Datas novas: importe (1 call)
-ou aguarde a rotina diaria. A curva varia por data; nao da' p/ extrapolar entre datas.
+Debentures IPCA+ amortizantes (ex: 18H0193630) tem eventos tipo "A" na B3 que reduzem o VNE
+(valor nominal de emissao). A formula exata de VNA para datas distintas da ancora e':
+
+```
+VNA(d) = VNA_ancora × (1 - cumul_d%) / (1 - cumul_ancora%) × IPCA(d)/IPCA(ancora)
+```
+
+Onde `cumul_x%` = soma dos yields dos eventos A com data ≤ x (em % do VNE, soma total = 100%).
+Implementado em VBA via `gAmortD`/`gAmortP` (arrays module-level, seguro pois VBA e' single-thread).
+Linhas `AMORTPCT\tdata\tpct_vne` nos CSVs. `atualizar_amortpct.py` popula ativos antigos.
+Erro antes: ~-1% para datas passadas. Depois: +0.19% (limite do IPCA interpolado; 0.000% na ancora).
+
+## Curva DI — Fontes e Estrategias
+
+Ver [[tema-curva-di-historica]] para detalhes completos. Resumo:
+
+**Data atual (apenas ultimos ~20 pregoes):**
+- `sync_b3_curve.py`: API `referenceRatesProxy/Search/GetList` da B3 (portal Angular).
+  Salva em `data/fluxos/_curva_di.csv` (TSV: `data\tdu\ttaxa_pct_aa`).
+  Taxa no formato percentagem: `10.40` = 10,40% a.a.
+  Limitacao: endpoint ignora o parametro `date` para datas historicas (sempre retorna hoje).
+
+**Historico (qualquer data desde ~2006):**
+- `importar_curva_historica.py INI FIM`: baixa arquivo TaxaSwap (TS) da B3.
+  URL: `https://www.b3.com.br/pesquisapregao/download?filelist=TS{YYMMDD}.ex_,`
+  Formato: outer ZIP → inner SFX (exe) → busca `PK\x03\x04` → inner ZIP → `TaxaSwap.txt`.
+  Taxa PRE (DI×PRE) em largura fixa: `[52:66] / 1e7` = % a.a. Amostra: du=1 dia = 10.40%.
+  Delay 0.5s por data; ~5-10 min para 1 ano.
+
+**Historico via Bloomberg (se disponivel):**
+- `importar_curva_bloomberg.py arquivo.csv`: importa serie ODF21/ODH21 (PU B3 por contrato).
+  OD→DI1, codigo de mes F/G/H/J/K/M/N/Q/U/V/X/Z, vencimento = 1o dia util do mes.
+  `taxa_aa_pct = ((100000/PU)^(252/du) - 1) × 100`. Aceita .csv ou .xlsx.
+
+**Curva implicita (DI-PERC sem curva externa):**
+- `FD_i = VF_i/PV_i` (ja vem da B3 em cada papel DI-PERC). Curva forward por segmento.
+  Exato (~1e-5) para a data importada; impraticavel para datas nao importadas.
 
 ## Conexoes
 
-- (nenhuma pagina relacionada ainda)
+- [[tema-curva-di-historica]] — Metodologia detalhada: TaxaSwap, Bloomberg DI, interpolacao

@@ -132,3 +132,110 @@ Wiki criada em 2026-06-12. Nenhuma fonte ingerida ainda.
 Próximos passos sugeridos:
 1. Coloque o primeiro documento em `raw/` e peça "ingere [nome do arquivo]".
 2. Ou comece criando manualmente uma página `visao-geral.md` com o contexto do seu negócio.
+
+---
+
+# Quando estiver em 99% de uso da sessão atual, usar APENAS o CLI do Gemini.
+
+# Usando a CLI do Gemini para Análise de Grandes Bases de Código
+
+Ao analisar grandes bases de código ou múltiplos arquivos que podem exceder os limites de contexto, use a CLI do Gemini com sua enorme
+janela de contexto. Use `gemini -p` para aproveitar a grande capacidade de contexto do Google Gemini.
+
+## Sintaxe de Inclusão de Arquivos e Diretórios
+
+Use a sintaxe `@` para incluir arquivos e diretórios em seus prompts do Gemini. Os caminhos devem ser relativos a ONDE você executa o
+comando gemini:
+
+### Exemplos:
+
+**Análise de um único arquivo:**
+```
+gemini -p "@src/main.py Explique o propósito e a estrutura deste arquivo"
+```
+
+**Múltiplos arquivos:**
+```
+gemini -p "@package.json @src/index.js Analise as dependências usadas no código"
+```
+
+**Diretório inteiro:**
+```
+gemini -p "@src/ Resuma a arquitetura desta base de código"
+```
+
+**Múltiplos diretórios:**
+```
+gemini -p "@src/ @tests/ Analise a cobertura de testes para o código fonte"
+```
+
+**Diretório atual e subdiretórios:**
+```
+gemini -p "@./ Me dê uma visão geral de todo este projeto"
+```
+
+**Ou use a flag --all_files:**
+```
+gemini --all_files -p "Analise a estrutura e as dependências do projeto"
+```
+
+## Exemplos de Verificação de Implementação
+
+**Verifique se um recurso foi implementado:**
+```
+gemini -p "@src/ @lib/ O modo escuro foi implementado nesta base de código? Mostre-me os arquivos e funções relevantes"
+```
+
+**Verifique a implementação da autenticação:**
+```
+gemini -p "@src/ @middleware/ A autenticação JWT foi implementada? Liste todos os endpoints e middleware relacionados à autenticação"
+```
+
+**Verifique padrões específicos:**
+```
+gemini -p "@src/ Existem React hooks que lidam com conexões WebSocket? Liste-os com os caminhos dos arquivos"
+```
+
+**Verifique o tratamento de erros:**
+```
+gemini -p "@src/ @api/ O tratamento de erros adequado foi implementado para todos os endpoints da API? Mostre exemplos de blocos try-catch"
+```
+
+**Verifique a limitação de taxa:**
+```
+gemini -p "@backend/ @middleware/ A limitação de taxa foi implementada para a API? Mostre os detalhes da implementação"
+```
+
+**Verifique a estratégia de cache:**
+```
+gemini -p "@src/ @lib/ @services/ O cache Redis foi implementado? Liste todas as funções relacionadas ao cache e seu uso"
+```
+
+**Verifique medidas de segurança específicas:**
+```
+gemini -p "@src/ @api/ As proteções contra injeção de SQL foram implementadas? Mostre como as entradas do usuário são sanitizadas"
+```
+
+**Verifique a cobertura de testes para recursos:**
+```
+gemini -p "@src/payment/ @tests/ O módulo de processamento de pagamentos está totalmente testado? Liste todos os casos de teste"
+```
+
+## Quando usar a CLI do Gemini
+
+Use `gemini -p` quando:
+- Analisar bases de código inteiras ou diretórios grandes
+- Comparar múltiplos arquivos grandes
+- Precisar entender padrões ou arquitetura em todo o projeto
+- A janela de contexto atual for insuficiente para a tarefa
+- Trabalhar com arquivos totalizando mais de 100KB
+- Verificar se recursos, padrões ou medidas de segurança específicos foram implementados
+- Verificar a presença de certos padrões de codificação em toda a base de código
+
+## Notas Importantes
+
+- Os caminhos na sintaxe `@` são relativos ao seu diretório de trabalho atual ao invocar o gemini
+- A CLI incluirá o conteúdo dos arquivos diretamente no contexto
+- Não há necessidade da flag `--yolo` para análise somente leitura
+- A janela de contexto do Gemini pode lidar com bases de código inteiras que iriam sobrecarregar o contexto do Claude
+- Ao verificar implementações, seja específico sobre o que você está procurando para obter resultados precisos

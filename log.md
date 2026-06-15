@@ -61,3 +61,16 @@ Para buscar as últimas entradas: `grep "^## \[" log.md | tail -10`
 - PvCdi (VBA) / _pu_perc_curva (validador): deriva CDI forward por segmento, reaplica %
 - DI-PERC: residuo caiu de ~0.009 (CDI spot) para ~1e-5 (curva implicita)
 - Nao precisa baixar curva externa; validado 80/80 + add-in via COM
+
+## [2026-06-14] atualização | VNA amortizante IPCA+ e curva DI histórica
+
+- VNA IPCA+ com amortizações: formula VNA(d) = VNA_ancora×(1-cumul_d)/(1-cumul_ancora)×IPCA(d)/IPCA(ancora)
+  Implementado em RF_Calc.bas (gAmortD/gAmortP module-level); linhas AMORTPCT nos CSVs
+  Erro caiu de -1% para +0.19% para datas 2 meses antes da ancora; 0.000% na ancora
+  atualizar_amortpct.py: popula AMORTPCT nos 1427 ativos IPCA antigos sem re-importar
+- Curva DI historica: TaxaSwap B3 funciona para qualquer data desde ~2006
+  URL: pesquisapregao/download?filelist=TS{YYMMDD}.ex_ -> outer ZIP -> SFX exe -> inner ZIP -> TaxaSwap.txt
+  Parsing: busca PK\x03\x04 no binario SFX; TaxaSwap.txt posicao [52:66]/1e7 = taxa % a.a.
+  importar_curva_historica.py: baixa qualquer range de datas (~0.5s/pregao)
+  importar_curva_bloomberg.py: importa serie ODF21/ODH21 (PU->taxa via (100000/PU)^(252/du)-1)
+- Documentação: wiki/tema-curva-di-historica.md criada; projeto-addin-fluxos.md atualizado

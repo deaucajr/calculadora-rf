@@ -1,0 +1,425 @@
+================================================================================
+DOCUMENTAÇÃO DO ADD-IN RF_CALC — CALCULADORA DE RENDA FIXA
+Gerado por: Gemini 2.5 Pro
+Data: 2026-06-14
+================================================================================
+
+Este documento descreve todas as funções públicas do add-in RF_Calc.xlam para
+precificação de títulos de renda fixa brasileiros (debentures, CRIs, CRAs).
+As funções são chamadas diretamente em células do Excel.
+
+================================================================================
+ÍNDICE
+================================================================================
+1. RF_PU       — Preço Unitário (PU) dado uma taxa e data
+2. RF_TAXA     — Taxa implícita dado um PU e data
+3. RF_DURATION — Duration de Macaulay
+4. RF_DV01     — Sensibilidade de preço a 1 basis point
+5. RF_VNA      — Valor Nominal Atualizado
+6. RF_FLUXO    — Tabela completa de fluxos de caixa
+7. RF_INFO     — Metadados do ativo
+8. RF_LISTAR   — Lista todos os tickers disponíveis
+9. MACROS      — RF_ATUALIZAR, RF_EXPORTAR
+10. NOTAS GERAIS
+
+================================================================================
+1. RF_PU
+================================================================================
+
+SINTAXE:
+  RF_PU(ticker, taxa, dataCalc)
+
+DESCRIÇÃO:
+  Calcula o Preço Unitário (PU) de um título de renda fixa para uma determinada
+  taxa de desconto e data de cálculo. O PU representa o valor presente de todos
+  os fluxos de caixa futuros do ativo, sendo o preço "justo" do título com base
+  na taxa informada.
+
+PARÂMETROS:
+  - ticker   (texto)  : Código de negociação do ativo (ex: "EGIEA6"). Obrigatório.
+  - taxa     (número) : Taxa de desconto em % a.a. (ex: 6.5 para 6,5% a.a.).
+                        Para títulos %CDI, representa o percentual do CDI
+                        (ex: 110 para 110% do CDI). Obrigatório.
+  - dataCalc (data)   : Data para a qual o PU será calculado. Obrigatório.
+
+LÓGICA INTERNA:
+  Para títulos IPCA ou PRE:
+    A "cotação" (percentual do VNA) é calculada como a soma dos fluxos de caixa
+    futuros percentuais (FC%), cada um descontado pela taxa fornecida, usando
+    dias úteis como base de tempo (ano de 252 dias). O PU final é a cotação
+    multiplicada pelo VNA na dataCalc.
+    Fórmula:
+      PU = [ Σ ( FC_i% / (1 + taxa/100)^(du_i/252) ) ] × VNA(dataCalc)
+
+  Para títulos CDI ou %CDI:
+    O CSV contém blocos de fluxos pré-calculados para datas importadas.
+    1. Busca o bloco de fluxos para a dataCalc. Se não existir a data exata,
+       tenta gerar um bloco sintético usando a curva DI×PRÉ em _curva_di.csv.
+       Como último recurso, usa o bloco da data mais recente anterior.
+    2. A sub-rotina PvCdi recalcula o valor presente de cada pagamento:
+       - CDI+ (spread aditivo): ajuste exponencial.
+       - %CDI: extrai a curva CDI forward implícita (FD_i = VF_i/PV_i ref) e
+         reaplica com o novo percentual. Exatidão ~1e-5.
+    PU = soma dos PV recalculados.
+
+EXEMPLO REAL:
+  Ticker: EGIEA6 (debenture IPCA+ da Energisa, vence ~2033)
+  Fórmula Excel: =RF_PU("EGIEA6", 6.5, "2026-06-14")
+
+RETORNO ESPERADO:
+  ~1447.32 — valor em Reais (R$) por unidade do título.
+  (O valor exato depende do VNA atualizado pelo IPCA e dos fluxos vigentes.)
+
+CASOS ESPECIAIS / ERROS COMUNS:
+  - #N/A   : Ticker não encontrado. Verifique se <ticker>.csv existe na pasta.
+  - #VALUE!: dataCalc em formato inválido.
+  - #NUM!  : Erro numérico — VNA não encontrado, sem fluxos futuros, ou falha
+             na geração do bloco sintético para títulos CDI.
+
+--------------------------------------------------------------------------------
+2. RF_TAXA
+--------------------------------------------------------------------------------
+
+SINTAXE:
+  RF_TAXA(ticker, pu, dataCalc)
+
+DESCRIÇÃO:
+  Calcula a taxa de retorno implícita (Yield to Maturity — YTM) que iguala o
+  valor presente dos fluxos de caixa ao PU de mercado informado. É o inverso
+  matemático de RF_PU.
+
+PARÂMETROS:
+  - ticker   (texto)  : Código de negociação do ativo. Obrigatório.
+  - pu       (número) : Preço Unitário de mercado em R$. Obrigatório.
+  - dataCalc (data)   : Data de referência para o cálculo. Obrigatório.
+
+LÓGICA INTERNA:
+  Usa busca numérica por bisseção (100 iterações) no intervalo [0,0001%; 300%].
+  A cada passo, calcula o PU pela lógica interna de RF_PU e ajusta o intervalo:
+    - PU calculado > pu mercado  → taxa muito baixa, sobe o limite inferior
+    - PU calculado < pu mercado  → taxa muito alta, desce o limite superior
+  Convergência garantida com precisão de ~13 casas decimais após 100 iterações.
+
+EXEMPLO REAL:
+  Ticker: EGIEA6
+  Fórmula Excel: =RF_TAXA("EGIEA6", 1447.32, "2026-06-14")
+
+RETORNO ESPERADO:
+  ~6.500000 — taxa em % a.a.
+
+CASOS ESPECIAIS / ERROS COMUNS:
+  - #N/A   : Ticker não encontrado.
+  - #VALUE!: Data inválida.
+  - #NUM!  : PU fora da faixa calculável (irrealisticamente alto/baixo para o
+             intervalo de taxas de 0,0001% a 300%).
+
+--------------------------------------------------------------------------------
+3. RF_DURATION
+--------------------------------------------------------------------------------
+
+SINTAXE:
+  RF_DURATION(ticker, taxa, dataCalc)
+
+DESCRIÇÃO:
+  Calcula a Duration de Macaulay do ativo — prazo médio ponderado (em anos)
+  para o recebimento dos fluxos de caixa, ponderados pelos seus valores presentes.
+  Mede a sensibilidade relativa do preço a variações nas taxas de juros.
+
+PARÂMETROS:
+  - ticker   (texto)  : Código de negociação do ativo. Obrigatório.
+  - taxa     (número) : Taxa de desconto (% a.a.). Obrigatório.
+  - dataCalc (data)   : Data de referência. Obrigatório.
+
+LÓGICA INTERNA:
+  Fórmula padrão de Macaulay:
+    Duration = [ Σ ( t_i × PV_i ) ] / [ Σ ( PV_i ) ]
+  Onde:
+    t_i  = du_i / 252  (prazo em anos base dias úteis)
+    PV_i = VF_i / (1 + taxa/100)^(du_i/252)
+    Σ(PV_i) = PU total do título
+  A sub-rotina DurPU calcula numerador e denominador em uma única passagem.
+
+EXEMPLO REAL:
+  Ticker: EGIEA6
+  Fórmula Excel: =RF_DURATION("EGIEA6", 6.5, "2026-06-14")
+
+RETORNO ESPERADO:
+  ~4.85 — duration em anos (base 252 dias úteis).
+
+CASOS ESPECIAIS / ERROS COMUNS:
+  - #N/A : Ticker não encontrado.
+  - #NUM!: PU (denominador) igual a zero ou negativo — sem fluxos futuros.
+
+--------------------------------------------------------------------------------
+4. RF_DV01
+--------------------------------------------------------------------------------
+
+SINTAXE:
+  RF_DV01(ticker, taxa, dataCalc)
+
+DESCRIÇÃO:
+  Calcula o DV01 (Dollar Value of 01 / Price Value of a Basis Point): variação
+  absoluta em R$ no PU do ativo para uma variação de 1 basis point (0,01%) na
+  taxa de juros. Medida direta de sensibilidade monetária.
+
+PARÂMETROS:
+  - ticker   (texto)  : Código de negociação do ativo. Obrigatório.
+  - taxa     (número) : Taxa de referência (% a.a.). Obrigatório.
+  - dataCalc (data)   : Data de referência. Obrigatório.
+
+LÓGICA INTERNA:
+  Derivado da Duration Modificada:
+    Duration Modificada = Duration_Macaulay / (1 + taxa/100)
+    DV01 = Duration_Modificada × PU × 0,0001
+  No código: dur / (1 + taxa/100) × pu / 10000
+  DurPU fornece duration e PU em uma única passagem (eficiente).
+
+EXEMPLO REAL:
+  Ticker: EGIEA6
+  Fórmula Excel: =RF_DV01("EGIEA6", 6.5, "2026-06-14")
+
+RETORNO ESPERADO:
+  ~0.068 — variação do PU em R$ para cada 0,01% de variação na taxa.
+  (Interpretação: se a taxa sobe de 6,50% para 6,51%, o PU cai ~R$ 0,068.)
+
+CASOS ESPECIAIS / ERROS COMUNS:
+  - #N/A : Ticker não encontrado.
+  - #NUM!: Herdado de falha na duration ou no PU.
+
+--------------------------------------------------------------------------------
+5. RF_VNA
+--------------------------------------------------------------------------------
+
+SINTAXE:
+  RF_VNA(ticker, dataCalc)
+
+DESCRIÇÃO:
+  Retorna o VNA (Valor Nominal Atualizado) de um ativo em uma data específica.
+  Para títulos IPCA+, representa o principal corrigido pela inflação acumulada
+  desde a emissão. Para PRE/CDI, é tipicamente constante (= 1000 ou VNE inicial).
+
+PARÂMETROS:
+  - ticker   (texto) : Código de negociação do ativo. Obrigatório.
+  - dataCalc (data)  : Data para a qual se deseja o VNA. Obrigatório.
+
+LÓGICA INTERNA:
+  Busca os pontos VNA gravados no CSV (linhas "VNA: data, valor"):
+
+  Interpolação (dataCalc entre dois pontos conhecidos):
+    Log-linear, assumindo crescimento exponencial constante entre pontos.
+    Fórmula: VNA(d) = VNA(d1) × (VNA(d2)/VNA(d1))^((d-d1)/(d2-d1))
+
+  Extrapolação IPCA+ (dataCalc fora do intervalo armazenado):
+    Ancora no ponto mais próximo e projeta usando variação do IPCA (_ipca.csv).
+    Ajuste adicional para amortizações (linhas AMORTPCT):
+      VNA(d) = VNA_ancora × (1 - cumul_d%) / (1 - cumul_ancora%) × IPCA(d)/IPCA(ancora)
+    Onde cumul_x% = soma dos yields "A" com data ≤ x (% do VNE).
+    Precisão: 0,000% na data âncora; ~+0,19% com 2 meses de extrapolação
+    (limite da precisão do IPCA interpolado vs. IBGE exato).
+
+  Extrapolação não-IPCA:
+    Interpolação linear a partir dos dois pontos extremos.
+
+EXEMPLO REAL:
+  Ticker: EGIEA6
+  Fórmula Excel: =RF_VNA("EGIEA6", "2026-06-14")
+
+RETORNO ESPERADO:
+  ~1150.45 — VNA em R$ (valor corrigido pelo IPCA acumulado desde a emissão).
+
+CASOS ESPECIAIS / ERROS COMUNS:
+  - #N/A : Ticker não encontrado.
+  - #NUM!: _ipca.csv não encontrado para IPCA+, ou VNA resultante inválido (≤ 0).
+
+--------------------------------------------------------------------------------
+6. RF_FLUXO
+--------------------------------------------------------------------------------
+
+SINTAXE:
+  RF_FLUXO(ticker, taxa, dataCalc)
+
+DESCRIÇÃO:
+  Retorna uma tabela (array dinâmico) com todos os fluxos de caixa futuros do
+  ativo a partir da dataCalc, incluindo o valor presente de cada fluxo calculado
+  com a taxa fornecida.
+
+PARÂMETROS:
+  - ticker   (texto)  : Código de negociação do ativo. Obrigatório.
+  - taxa     (número) : Taxa de desconto (% a.a.) para calcular os PVs. Obrigatório.
+  - dataCalc (data)   : Data de referência; fluxos anteriores são ignorados. Obrigatório.
+
+LÓGICA INTERNA:
+  Itera sobre todos os eventos de fluxo do ativo com data > dataCalc.
+  Para cada evento retorna as colunas:
+    DATA    : Data do pagamento (formato ISO ou serial Excel)
+    EVENTO  : Tipo do fluxo ("JUROS", "AMORTIZACAO", "PRINCIPAL", etc.)
+    DU      : Dias úteis entre dataCalc e a data do pagamento
+    VF      : Valor Futuro em R$:
+               - IPCA/PRE: FC% × VNA(dataCalc)
+               - CDI: valor já definido no bloco de fluxo da data
+    PV @ x%: Valor Presente = VF / (1 + taxa/100)^(du/252)
+
+  A função retorna um array 2D. No Excel 365+ o resultado se expande
+  automaticamente na planilha ("spill/derramamento").
+
+EXEMPLO REAL:
+  Ticker: EGIEA6
+  Fórmula Excel: =RF_FLUXO("EGIEA6", 6.5, "2026-06-14")
+
+RETORNO ESPERADO:
+  Tabela com N linhas (uma por evento futuro) + 1 linha de cabeçalho:
+    DATA        EVENTO         DU    VF          PV @ 6.5%
+    2026-09-08  JUROS          63    28.75       28.37
+    2026-09-08  AMORTIZACAO    63    5.20        5.13
+    2026-12-08  JUROS         189    29.18       28.07
+    ...
+    2033-09-08  AMORTIZACAO  1890    45.60       22.14
+  (Soma da coluna PV @ 6.5% = RF_PU("EGIEA6", 6.5, "2026-06-14"))
+
+CASOS ESPECIAIS / ERROS COMUNS:
+  - #N/A : Ticker não encontrado.
+  - #NUM!: Para CDI, falha ao obter/gerar bloco de fluxos para dataCalc;
+           para outros, VNA inválido.
+
+--------------------------------------------------------------------------------
+7. RF_INFO
+--------------------------------------------------------------------------------
+
+SINTAXE:
+  RF_INFO(ticker, campo)
+
+DESCRIÇÃO:
+  Obtém uma informação de metadado específica sobre o ativo, lida do cabeçalho
+  do arquivo CSV (linhas "META"). Equivalente a uma consulta de cadastro.
+
+PARÂMETROS:
+  - ticker (texto) : Código de negociação do ativo. Obrigatório.
+  - campo  (texto) : Nome do campo desejado (case-insensitive). Obrigatório.
+                     Campos comuns: EMISSOR, VENCIMENTO, INDEXADOR, TAXA_EMISSAO,
+                     DATA_FLUXO, TIPO, METHOD, ISIN.
+                     Campos especiais: DATAS (lista datas disponíveis para CDI/VNA).
+
+LÓGICA INTERNA:
+  Carrega o ativo em cache e faz busca no dicionário de cabeçalho (hdr),
+  populado pelas linhas META do CSV:
+    META <tab> CHAVE <tab> VALOR
+  Campos especiais:
+    "DATAS"     → para CDI: lista as datas com blocos FLUXOD gravados.
+                  para IPCA: lista as datas com pontos VNA gravados.
+    "VNA_DATAS" → lista especificamente os pontos de VNA armazenados.
+  Retorna "campo invalido" se o campo não existir.
+
+EXEMPLO REAL:
+  Ticker: EGIEA6
+  Fórmulas Excel:
+    =RF_INFO("EGIEA6", "EMISSOR")       → "Energisa S.A."
+    =RF_INFO("EGIEA6", "VENCIMENTO")    → 2033-09-08
+    =RF_INFO("EGIEA6", "INDEXADOR")     → IPCA
+    =RF_INFO("EGIEA6", "TAXA_EMISSAO")  → 6.5
+    =RF_INFO("EGIEA6", "DATAS")         → lista de datas VNA importadas
+
+RETORNO ESPERADO:
+  Texto, número ou data conforme o campo. Ex: "Energisa S.A.", 6.5, "2033-09-08".
+
+CASOS ESPECIAIS / ERROS COMUNS:
+  - #N/A   : Ticker não encontrado.
+  - Retorna "campo invalido" (texto) se o campo não existir no CSV.
+
+--------------------------------------------------------------------------------
+8. RF_LISTAR
+--------------------------------------------------------------------------------
+
+SINTAXE:
+  RF_LISTAR()
+
+DESCRIÇÃO:
+  Retorna uma lista vertical com todos os tickers disponíveis para cálculo nas
+  pastas de dados configuradas. Útil para consultar o universo de ativos importados.
+
+PARÂMETROS:
+  Nenhum.
+
+LÓGICA INTERNA:
+  Varre duas pastas configuradas em rf_fluxos.txt:
+    - Pasta principal:  .../data/fluxos/         (ativos importados da B3)
+    - Pasta manual:     .../data/fluxos_manual/   (ativos inseridos manualmente)
+  Lista todos os arquivos .csv cujo nome NÃO começa com "_" (arquivos de sistema
+  como _cdi.csv, _feriados.csv, _ipca.csv e _curva_di.csv são excluídos).
+  Retorna um array vertical com os nomes (sem extensão).
+
+EXEMPLO REAL:
+  Fórmula Excel: =RF_LISTAR()
+
+RETORNO ESPERADO:
+  Coluna que se expande automaticamente (Excel 365+):
+    EGIEA6
+    BRMLA9
+    CSNA15
+    VLHA11
+    ... (todos os tickers importados)
+
+CASOS ESPECIAIS / ERROS COMUNS:
+  - Se a pasta não for encontrada, retorna mensagem indicando ausência de ativos.
+  - Se nenhum CSV existir nas pastas (exceto _*), retorna lista vazia.
+
+================================================================================
+9. MACROS (não são funções de célula — executar via Alt+F8)
+================================================================================
+
+RF_ATUALIZAR:
+  Limpa todo o cache em memória do add-in: dados de ativos, feriados, IPCA,
+  curva DI e CDI. Força releitura dos arquivos CSV na próxima chamada de função.
+  Usar quando: arquivos foram atualizados no disco (importar_fluxos.py, rotina
+  diária) e o Excel ainda mostra valores antigos. Não fecha nem salva nada.
+
+RF_EXPORTAR:
+  Macro interativa. Solicita via diálogos: ticker, taxa e data.
+  Gera uma nova planilha (novo arquivo Excel) com a tabela de fluxo de caixa
+  formatada (colunas: DATA, EVENTO, DU, VF, PV @ taxa%) e a soma total do PU.
+  Útil para exportar o detalhamento de um papel específico para envio/análise.
+
+================================================================================
+10. NOTAS GERAIS
+================================================================================
+
+FORMATO DE DATAS:
+  As funções aceitam datas no formato padrão do Excel (número serial) ou em
+  texto interpretável ("dd/mm/aaaa", "aaaa-mm-dd", "dd-mm-aaaa").
+  Internamente o add-in trabalha com "YYYY-MM-DD".
+  Recomendado: usar referência a célula formatada como data, ou texto "YYYY-MM-DD".
+
+UNIDADES:
+  - Taxa     : % a.a. (porcentagem ao ano, base 252 dias úteis)
+               Para %CDI: o número representa o percentual (ex: 98 = 98% do CDI)
+  - PU       : R$ (Reais por unidade do título)
+  - VNA      : R$ (Reais — valor nominal atualizado)
+  - Duration : anos (base 252 dias úteis)
+  - DV01     : R$ (variação do PU para +0,01% na taxa)
+
+TRUNCAMENTO B3:
+  O PU é truncado na 6ª casa decimal: Int(PU × 1.000.000) / 1.000.000.
+  Isso replica exatamente o comportamento da B3 (regra T|06).
+
+ARQUIVO DO ADD-IN:
+  Módulo VBA: RF_Calc.bas
+  Add-in compilado: %APPDATA%\Microsoft\AddIns\RF_Calc.xlam
+  Auto-load: chave de registro HKCU\...\Excel\Options\OPEN = /R "RF_Calc.xlam"
+
+PASTA DE DADOS:
+  Configurada em: %APPDATA%\Microsoft\AddIns\rf_fluxos.txt
+  Padrão: <projeto>\sistema\data\fluxos\
+  Arquivos de sistema (prefixo _):
+    _cdi.csv        — histórico CDI diário (para cálculo de juros CDI+)
+    _ipca.csv       — histórico IPCA mensal (para correção de VNA IPCA+)
+    _feriados.csv   — calendário de feriados B3 (para contagem de du)
+    _curva_di.csv   — curva DI×PRÉ (para precificação CDI com curva sintética)
+
+ATUALIZAÇÃO DOS DADOS:
+  python scripts/importar_fluxos.py TICKER       — importa/atualiza 1 ativo
+  python scripts/rotina_diaria.py                — detecta novos + atualiza todos
+  python scripts/importar_curva_historica.py INI FIM — histórico curva DI (TaxaSwap B3)
+  python scripts/importar_curva_bloomberg.py ARQ — histórico via planilha Bloomberg
+
+================================================================================
+FIM DA DOCUMENTAÇÃO
+================================================================================

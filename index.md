@@ -1,5 +1,5 @@
 ---
-atualizado: 2026-06-12
+atualizado: 2026-06-14
 ---
 
 # Índice da Wiki
@@ -21,7 +21,7 @@ Este arquivo é o catálogo central de todas as páginas em `wiki/`. O LLM lê e
 *(nenhum ainda)*
 
 ## Temas e Conceitos
-*(nenhum ainda)*
+- [[tema-curva-di-historica]] — Curva DI×PRÉ histórica: TaxaSwap B3, Bloomberg OD*, interpolação flat-forward (tema)
 
 ## Decisões
 *(nenhum ainda)*
@@ -37,4 +37,4 @@ Este arquivo é o catálogo central de todas as páginas em `wiki/`. O LLM lê e
 
 ---
 
-*Última atualização: 2026-06-12 — Wiki inicializada.*
+*Última atualização: 2026-06-14 — Adicionado tema-curva-di-historica; atualizado projeto-addin-fluxos com VNA amortizante e fontes históricas.*
