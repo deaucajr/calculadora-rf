@@ -7,7 +7,7 @@ Rode (Windows, Excel FECHADO):
     cd sistema
     python setup.py
 
-ou de duplo-clique em  setup.bat
+ou de duplo-clique em  setup.py
 
 O que faz, em ordem (cada passo e idempotente; pode rodar de novo):
   1. Instala as dependencias (requirements.txt).
@@ -198,6 +198,7 @@ def main():
     print("     python scripts/verificar_cadastro.py --baixar   (baixa os que faltam)")
     print("   Atualizar tudo no dia a dia:  python scripts/rotina_diaria.py")
     print("=" * 60)
+    input("\nPressione Enter para sair...")
 
 
 if __name__ == "__main__":

@@ -83,7 +83,7 @@ def aplicar_no_addin(propagar_dist: bool = True) -> dict:
             DIST_CFG.parent.mkdir(parents=True, exist_ok=True)
             DIST_CFG.write_text(
                 "# Caminho oficial da pasta de fluxos (gerado de config.json -> fluxos_dir).\n"
-                "# Os colegas so rodam o instalar.bat; ele usa a linha abaixo.\n"
+                "# Os colegas so rodam o instalar.py; ele usa a linha abaixo.\n"
                 + p + "\n", encoding="utf-8")
             res["dist"] = str(DIST_CFG)
         except Exception as e:

@@ -135,8 +135,6 @@ Próximos passos sugeridos:
 
 ---
 
-# Quando estiver em 99% de uso da sessão atual, usar APENAS o CLI do Gemini.
-
 # Usando a CLI do Gemini para Análise de Grandes Bases de Código
 
 Ao analisar grandes bases de código ou múltiplos arquivos que podem exceder os limites de contexto, use a CLI do Gemini com sua enorme
