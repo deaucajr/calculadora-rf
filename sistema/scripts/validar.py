@@ -24,6 +24,26 @@ from src.api_client import calc_pu_api
 
 _FER = set(gerar_feriados())
 
+# Fatores diarios do IPCA (_ipca.csv) — usados para escalar VNA entre datas
+_IPCA_FAT = None
+
+def _ipca_fatores():
+    global _IPCA_FAT
+    if _IPCA_FAT is not None:
+        return _IPCA_FAT
+    _IPCA_FAT = {}
+    p = FLUXOS_DIR / "_ipca.csv"
+    if p.exists():
+        for ln in p.read_text(encoding="utf-8").splitlines():
+            a = ln.split(SEP)
+            if len(a) >= 2:
+                try:
+                    _IPCA_FAT[a[0]] = float(a[1])
+                except ValueError:
+                    pass
+    return _IPCA_FAT
+
+
 _CDI = None
 def cdi_dia(data: dt_date) -> float:
     """CDI diario (fracao) da data, ou o ultimo disponivel antes dela."""
@@ -72,17 +92,37 @@ def ler_csv(ticker: str) -> dict | None:
     return {"meta": meta, "fluxo": fluxo, "vna": vna, "cdi": cdi}
 
 
-def vna_data(vna: dict, data: dt_date) -> float:
+def _vna_por_ipca(ancora_data: dt_date, ancora_val: float, data: dt_date) -> float:
+    """Escala VNA usando os fatores diarios de _ipca.csv: VNA(t) = VNA_ancora * f(t)/f(ancora)."""
+    fat = _ipca_fatores()
+    fa = fat.get(ancora_data.isoformat())
+    fd = fat.get(data.isoformat())
+    if fa and fd and fa != 0:
+        return ancora_val * fd / fa
+    return ancora_val  # fallback: sem dado no _ipca.csv
+
+
+def vna_data(vna: dict, data: dt_date, indexador: str = "") -> float:
     di = data.isoformat()
     if di in vna:
         return vna[di]
     pts = sorted((datetime.fromisoformat(k).date(), v) for k, v in vna.items())
+    if not pts:
+        return 0.0
     if len(pts) == 1:
+        # Para IPCA: usa _ipca.csv para escalar corretamente para qualquer data
+        if indexador == "IPCA":
+            return _vna_por_ipca(pts[0][0], pts[0][1], data)
         return pts[0][1]
-    # interpolacao geometrica por dias uteis
+    # Multiplos pontos: interpolacao geometrica por dias uteis
     if data <= pts[0][0]:
+        # Extrapolacao para tras: usa _ipca.csv se IPCA, senao usa primeiros 2 pontos
+        if indexador == "IPCA":
+            return _vna_por_ipca(pts[0][0], pts[0][1], data)
         a, b = pts[0], pts[1]
     elif data >= pts[-1][0]:
+        if indexador == "IPCA":
+            return _vna_por_ipca(pts[-1][0], pts[-1][1], data)
         a, b = pts[-2], pts[-1]
     else:
         a, b = pts[0], pts[1]
@@ -135,7 +175,7 @@ def calc_pu_local(d: dict, taxa: float, data: dt_date) -> float | None:
         du = conta_du(data, dt)
         if du > 0:
             cot += fc / (1 + taxa / 100) ** (du / 252)
-    v = vna_data(d["vna"], data)
+    v = vna_data(d["vna"], data, idx)
     return math.floor(cot * v * 1e6) / 1e6
 
 
