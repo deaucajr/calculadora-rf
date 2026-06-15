@@ -32,13 +32,15 @@ Private Const FLUXOS_DIR As String = _
 Private Const SEP As String = vbTab
 Private Const NTNB_CUPOM As Double = 0.0295630140987    ' NTN-B: (1,06)^0,5 - 1 (cupom semestral)
 
-Private gAtivos As Object   ' ticker -> Array(hdr, flows2D, vDates, vVals, cdi)  (cache lazy)
+Private gAtivos As Object   ' ticker -> Array(hdr, flows2D, vDates, vVals, cdi, amortD, amortP)
 Private gFeriados As Object ' CLng(date) -> True
 Private gCdi As Object      ' data_iso -> CDI diario (fracao); p/ DI-PERC (% do CDI)
 Private gCurva As Object    ' data_iso -> curva DI B3 2D(n,2): [du, taxa_aa]  (_curva_di.csv)
 Private gCfCache As Object  ' "ticker|data_iso" -> bloco sintetico CDI (cache; independe da taxa)
 Private gIpca As Object     ' data_iso -> fator IPCA (numero-indice); p/ VNA de IPCA+ em qualquer data
 Private gFluxosDir As String ' caminho resolvido em runtime (cache da sessao)
+Private gAmortD As Variant  ' amortDates() do ativo corrente (Double); Empty p/ nao-IPCA
+Private gAmortP As Variant  ' amortPcts() do ativo corrente (% de VNE); Empty p/ nao-IPCA
 
 ' ================= INFRA / LAZY =================
 
@@ -55,6 +57,7 @@ Public Sub RF_ATUALIZAR()
     Set gCfCache = Nothing
     Set gIpca = Nothing
     gFluxosDir = ""
+    gAmortD = Empty: gAmortP = Empty
     RegistrarFuncoes
     MsgBox "Cache limpo. Os ativos serao recarregados sob demanda de:" & vbCrLf & FluxosDir(), _
            vbInformation, "RF Calc"
@@ -172,6 +175,8 @@ Private Function CarregarAtivo(ticker As String) As Boolean
     Dim fl() As Variant, nf As Long: ReDim fl(1 To 1000, 1 To 6)
     Dim vd() As Double, vv() As Double, nv As Long
     ReDim vd(1 To 500): ReDim vv(1 To 500)
+    Dim aD() As Double, aP() As Double, na As Long  ' AMORTPCT: datas e pcts de amortizacao
+    ReDim aD(1 To 500): ReDim aP(1 To 500)
     Dim cdiTmp As Object: Set cdiTmp = CreateObject("Scripting.Dictionary")  ' data -> Collection
 
     Dim fnum As Integer, linha As String, p() As String
@@ -201,6 +206,12 @@ Private Function CarregarAtivo(ticker As String) As Boolean
                 If UBound(p) >= 6 Then
                     If Not cdiTmp.Exists(p(1)) Then cdiTmp.Add p(1), New Collection
                     cdiTmp(p(1)).Add Array(ParseISO(p(2)), Val(p(4)), Val(p(5)), CLng(Val(p(6))))
+                End If
+            Case "AMORTPCT"  ' IPCA amortizante: data, pct-de-VNE (soma=100%)
+                If UBound(p) >= 2 Then
+                    na = na + 1
+                    If na > UBound(aD) Then ReDim Preserve aD(1 To na + 100): ReDim Preserve aP(1 To na + 100)
+                    aD(na) = CDbl(ParseISO(p(1))): aP(na) = Val(p(2))
                 End If
         End Select
 Prox:
@@ -246,7 +257,14 @@ Prox:
 
     If nf < 1 And cdi Is Nothing Then Exit Function
     If gAtivos Is Nothing Then Set gAtivos = CreateObject("Scripting.Dictionary")
-    gAtivos(tk) = Array(hdr, fl2, vd2, vv2, cdi)
+    Dim amortD2 As Variant, amortP2 As Variant
+    If na > 0 Then
+        Dim td() As Double, tp() As Double
+        ReDim td(1 To na): ReDim tp(1 To na)
+        Dim kk As Long: For kk = 1 To na: td(kk) = aD(kk): tp(kk) = aP(kk): Next kk
+        amortD2 = td: amortP2 = tp
+    End If
+    gAtivos(tk) = Array(hdr, fl2, vd2, vv2, cdi, amortD2, amortP2)
     CarregarAtivo = True
     Exit Function
 Falha:
@@ -464,6 +482,8 @@ Private Function PegaAtivo(ticker As String, ByRef hdr As Object, ByRef fl As Va
     Dim a As Variant: a = gAtivos(tk)
     Set hdr = a(0): fl = a(1): vDates = a(2): vVals = a(3)
     If IsObject(a(4)) Then Set cdi = a(4) Else Set cdi = Nothing
+    If UBound(a) >= 6 Then gAmortD = a(5): gAmortP = a(6) _
+    Else gAmortD = Empty: gAmortP = Empty
     PegaAtivo = True
 End Function
 
@@ -553,12 +573,27 @@ Private Function VNAData(vDates As Variant, vVals As Variant, dCalc As Date, _
     Next i
 
     ' IPCA: fora do intervalo dos pontos gravados, ancora no extremo e move pelo
-    ' fator do IPCA (numero-indice em _ipca.csv) -> VNA correta p/ qualquer data.
+    ' fator do IPCA + correcao de amortizacao (gAmortD/gAmortP, % de VNE somando 100%).
+    ' VNA(d) = VNA_anc * IPCA(d)/IPCA(anc) * (1-cumul_d)/(1-cumul_anc)
     If ehIpca And (x < vDates(lo) Or x > vDates(hi) Or hi = lo) Then
         Dim anc As Long: anc = IIf(x <= vDates(lo), lo, hi)
         Dim fa As Double, fd As Double
         fa = IpcaFator(CDate(vDates(anc))): fd = IpcaFator(dCalc)
-        If fa > 0 And fd > 0 Then VNAData = vVals(anc) * fd / fa: Exit Function
+        If fa > 0 And fd > 0 Then
+            Dim ipca_vna As Double: ipca_vna = vVals(anc) * fd / fa
+            If IsArray(gAmortD) Then
+                Dim anc_d As Double: anc_d = vDates(anc)
+                Dim ca As Double, cd As Double, j As Long
+                For j = 1 To UBound(gAmortD)
+                    If gAmortD(j) <= anc_d Then ca = ca + gAmortP(j)
+                    If gAmortD(j) <= x Then cd = cd + gAmortP(j)
+                Next j
+                ca = ca / 100: cd = cd / 100
+                If ca < 1 Then ipca_vna = ipca_vna * (1 - cd) / (1 - ca)
+            End If
+            VNAData = ipca_vna
+            Exit Function
+        End If
     End If
     If hi = lo Then VNAData = vVals(lo): Exit Function
 

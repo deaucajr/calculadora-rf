@@ -183,6 +183,16 @@ def importar_ticker(ticker: str, data_calc: str | None = None) -> str:
         ]))
     for dstr in sorted(vna_pts):
         out.append(SEP.join(["VNA", dstr, f"{vna_pts[dstr]:.6f}"]))
+    # IPCA amortizante: salva cronograma de amortizacao (% de VNE, soma=100%)
+    # para correcao exata de VNA em datas passadas/futuras fora dos pontos gravados.
+    if indexador == "IPCA":
+        amort_evs = sorted(
+            (e["date"][:10], e["yield"])
+            for e in det.get("events", [])
+            if e.get("eventType") == "A"
+        )
+        for d_iso, pct in amort_evs:
+            out.append(SEP.join(["AMORTPCT", d_iso, f"{pct:.8f}"]))
     path.write_text("\n".join(out), encoding="utf-8")
     return f"OK {ticker}: {len(flows)} fluxos, VNA({dc})={vna:.4f}, pts_vna={len(vna_pts)}, {indexador}"
 
