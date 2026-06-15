@@ -38,9 +38,11 @@ def main():
         return
 
     # 2. Copia o add-in para a pasta de AddIns do usuario
+    # O arquivo e distribuido como .xlam.bin para passar pelo filtro do Gmail
     addins = Path(os.environ["APPDATA"]) / "Microsoft" / "AddIns"
     addins.mkdir(parents=True, exist_ok=True)
-    shutil.copy2(dist / "RF_Calc.xlam", addins / "RF_Calc.xlam")
+    origem = dist / "RF_Calc.xlam.bin" if (dist / "RF_Calc.xlam.bin").exists() else dist / "RF_Calc.xlam"
+    shutil.copy2(origem, addins / "RF_Calc.xlam")
     print(f"[ok] add-in copiado para {addins}")
 
     # 3. Registra o auto-load no registro do Windows

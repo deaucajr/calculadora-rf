@@ -109,8 +109,8 @@ def main():
         import shutil
         dist = BASE.parent / "dist"
         dist.mkdir(parents=True, exist_ok=True)
-        shutil.copy2(XLAM, dist / "RF_Calc.xlam")
-        print(f"OK: copia distribuivel em {dist / 'RF_Calc.xlam'}")
+        shutil.copy2(XLAM, dist / "RF_Calc.xlam.bin")
+        print(f"OK: copia distribuivel em {dist / 'RF_Calc.xlam.bin'}")
     except Exception as e:
         print(f"(aviso) nao copiei p/ dist: {e}")
 
