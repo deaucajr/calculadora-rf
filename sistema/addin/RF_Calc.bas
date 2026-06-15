@@ -1261,6 +1261,242 @@ Public Function RF_LISTAR() As Variant
     RF_LISTAR = out
 End Function
 
+' ================= BREAKEVEN / SWAP / YTC / YTW =================
+'
+' Cadeia de equivalencia de indexadores (via equacao de Fisher e curva DI):
+'   %CDI  <-A->  CDI+spread  <-B->  PRE  <-C->  IPCA+spread
+'
+' A: spread_cdi = [(1+CDI/100)^(pct/100-1) - 1]*100  (independente do prazo)
+'    pct_cdi    = [1 + ln(1+spread/100)/ln(1+CDI/100)]*100
+' B: PRE_eq = CDI_proj + spread_cdi (taxa nominal pela curva DI)
+' C: inflacao = (1+PRE/100)/(1+IPCA_real/100) - 1  (Fisher; resultado em % a.a.)
+'    ou equivalente: IPCA_real = (1+PRE/100)/(1+infla/100) - 1
+'
+' Convencao: CDI+ usa capitalizacao multiplicativa. Para debentures com spread
+' aditivo pequeno, a diferenca vs. multiplicativo e' milli-bps, ignoravel.
+' -------------------------------------------------------------
+
+' --- Breakeven IPCA+ vs PRE -----------------------------------
+' Inflacao implicita (Fisher) que iguala o retorno de PRE ao IPCA+. Retorna % a.a.
+' Se inflacao esperada > resultado -> prefira IPCA+; se menor -> prefira PRE.
+Public Function RF_INFLA_IMPLICITA(taxaPre As Double, taxaIpca As Double) As Variant
+    On Error GoTo Erro
+    RF_INFLA_IMPLICITA = ((1 + taxaPre / 100) / (1 + taxaIpca / 100) - 1) * 100
+    Exit Function
+Erro:
+    RF_INFLA_IMPLICITA = CVErr(xlErrValue)
+End Function
+
+' --- Breakeven %CDI vs PRE ------------------------------------
+' CDI medio (% a.a.) que faz %CDI render igual ao PRE. Retorna % a.a.
+' Se CDI medio esperado > resultado -> prefira %CDI; se menor -> prefira PRE.
+Public Function RF_BREAKEVEN_CDI(taxaPre As Double, pctCdi As Double) As Variant
+    On Error GoTo Erro
+    If pctCdi <= 0 Then RF_BREAKEVEN_CDI = CVErr(xlErrNum): Exit Function
+    RF_BREAKEVEN_CDI = ((1 + taxaPre / 100) ^ (100 / pctCdi) - 1) * 100
+    Exit Function
+Erro:
+    RF_BREAKEVEN_CDI = CVErr(xlErrValue)
+End Function
+
+' --- Transformacoes de indexador (%CDI <-> CDI+ <-> IPCA+) ---
+'
+' RF_PCT_PARA_CDI: %CDI -> spread CDI+
+'   Dado pct_cdi (ex: 98) e CDI projetado, retorna spread CDI+ equivalente em % a.a.
+'   Formula: spread = [(1+CDI/100)^(pct/100-1) - 1]*100
+'   Resultado independe do prazo.
+Public Function RF_PCT_PARA_CDI(pctCdi As Double, cdiProj As Double) As Variant
+    On Error GoTo Erro
+    RF_PCT_PARA_CDI = ((1 + cdiProj / 100) ^ (pctCdi / 100 - 1) - 1) * 100
+    Exit Function
+Erro:
+    RF_PCT_PARA_CDI = CVErr(xlErrValue)
+End Function
+
+' RF_CDI_PARA_PCT: spread CDI+ -> %CDI equivalente
+'   Formula: pct = [1 + ln(1+spread/100) / ln(1+CDI/100)] * 100
+Public Function RF_CDI_PARA_PCT(spreadCdi As Double, cdiProj As Double) As Variant
+    On Error GoTo Erro
+    If cdiProj <= -100 Then RF_CDI_PARA_PCT = CVErr(xlErrNum): Exit Function
+    RF_CDI_PARA_PCT = (1 + Log(1 + spreadCdi / 100) / Log(1 + cdiProj / 100)) * 100
+    Exit Function
+Erro:
+    RF_CDI_PARA_PCT = CVErr(xlErrValue)
+End Function
+
+' RF_CDI_PARA_IPCA: spread CDI+ -> spread IPCA+ equivalente
+'   Leg CDI nominal: (1+CDI/100)*(1+spread_cdi/100)
+'   Leg IPCA nominal: (1+spread_ipca/100)*(1+infla/100)
+'   Iguala: spread_ipca = [(1+CDI/100)*(1+spread_cdi/100)/(1+infla/100) - 1]*100
+Public Function RF_CDI_PARA_IPCA(spreadCdi As Double, cdiProj As Double, inflaProj As Double) As Variant
+    On Error GoTo Erro
+    If inflaProj <= -100 Then RF_CDI_PARA_IPCA = CVErr(xlErrNum): Exit Function
+    RF_CDI_PARA_IPCA = ((1 + cdiProj / 100) * (1 + spreadCdi / 100) / (1 + inflaProj / 100) - 1) * 100
+    Exit Function
+Erro:
+    RF_CDI_PARA_IPCA = CVErr(xlErrValue)
+End Function
+
+' RF_IPCA_PARA_CDI: spread IPCA+ -> spread CDI+ equivalente
+Public Function RF_IPCA_PARA_CDI(spreadIpca As Double, cdiProj As Double, inflaProj As Double) As Variant
+    On Error GoTo Erro
+    If cdiProj <= -100 Then RF_IPCA_PARA_CDI = CVErr(xlErrNum): Exit Function
+    RF_IPCA_PARA_CDI = ((1 + spreadIpca / 100) * (1 + inflaProj / 100) / (1 + cdiProj / 100) - 1) * 100
+    Exit Function
+Erro:
+    RF_IPCA_PARA_CDI = CVErr(xlErrValue)
+End Function
+
+' RF_PCT_PARA_IPCA: %CDI -> spread IPCA+ equivalente (encadeia A+C)
+'   (1+CDI/100)^(pct/100) = (1+spread_ipca/100)*(1+infla/100)
+'   spread_ipca = [(1+CDI/100)^(pct/100) / (1+infla/100) - 1]*100
+Public Function RF_PCT_PARA_IPCA(pctCdi As Double, cdiProj As Double, inflaProj As Double) As Variant
+    On Error GoTo Erro
+    If inflaProj <= -100 Then RF_PCT_PARA_IPCA = CVErr(xlErrNum): Exit Function
+    RF_PCT_PARA_IPCA = ((1 + cdiProj / 100) ^ (pctCdi / 100) / (1 + inflaProj / 100) - 1) * 100
+    Exit Function
+Erro:
+    RF_PCT_PARA_IPCA = CVErr(xlErrValue)
+End Function
+
+' RF_IPCA_PARA_PCT: spread IPCA+ -> %CDI equivalente
+'   (1+CDI/100)^(pct/100) = (1+spread_ipca/100)*(1+infla/100)
+'   pct = log[(1+spread_ipca/100)*(1+infla/100)] / log(1+CDI/100) * 100
+Public Function RF_IPCA_PARA_PCT(spreadIpca As Double, cdiProj As Double, inflaProj As Double) As Variant
+    On Error GoTo Erro
+    If cdiProj <= 0 Or inflaProj <= -100 Then RF_IPCA_PARA_PCT = CVErr(xlErrNum): Exit Function
+    Dim nominal As Double: nominal = (1 + spreadIpca / 100) * (1 + inflaProj / 100)
+    RF_IPCA_PARA_PCT = Log(nominal) / Log(1 + cdiProj / 100) * 100
+    Exit Function
+Erro:
+    RF_IPCA_PARA_PCT = CVErr(xlErrValue)
+End Function
+
+' --- Yield to Call (YTC) --------------------------------------
+' YTC e' a TIR que iguala o PU de mercado ao PV dos fluxos ate dataCall
+' mais o preco de call (callPrice em R$, 0 = VNA na data de call).
+' Para ativos CDI, callPrice obrigatorio (informar o notional de resgate).
+' Para IPCA/PRE, callPrice=0 usa VNA(dataCall) como preco de call (par).
+' Nota: nao suporta call em ativo CDI sem callPrice explicito.
+Public Function RF_YTC(ticker As String, pu As Double, dataCalc As Variant, _
+                       dataCall As Variant, Optional callPrice As Double = 0) As Variant
+    On Error GoTo Erro
+    Dim hdr As Object, fl As Variant, vd As Variant, vv As Variant, cdi As Object
+    If Not PegaAtivo(ticker, hdr, fl, vd, vv, cdi) Then RF_YTC = CVErr(xlErrNA): Exit Function
+    Dim d As Date: d = CDate(dataCalc)
+    Dim dc As Date: dc = CDate(dataCall)
+    If dc <= d Then RF_YTC = CVErr(xlErrNum): Exit Function
+
+    ' Calculo do preco de call
+    Dim cp As Double: cp = callPrice
+    If cp = 0 Then
+        If UCase(CStr(hdr("INDEXADOR"))) = "CDI" Then RF_YTC = CVErr(xlErrNum): Exit Function
+        cp = VNAData(vd, vv, dc, UCase(CStr(hdr("INDEXADOR"))) = "IPCA")
+        If cp <= 0 Then RF_YTC = CVErr(xlErrNum): Exit Function
+    End If
+
+    ' Bisseccao: taxa que iguala PU ao fluxo truncado + call price
+    Dim lo As Double, hi As Double, mid As Double, it As Long
+    lo = 0.0001: hi = 300
+    Dim puLo As Double, puHi As Double, puMid As Double, e As Boolean
+
+    puLo = CalcPuYtcIpca(hdr, fl, vd, vv, d, dc, lo, cp)
+    puHi = CalcPuYtcIpca(hdr, fl, vd, vv, d, dc, hi, cp)
+    If pu > puLo Or pu < puHi Then RF_YTC = CVErr(xlErrNum): Exit Function
+
+    For it = 1 To 100
+        mid = (lo + hi) / 2
+        puMid = CalcPuYtcIpca(hdr, fl, vd, vv, d, dc, mid, cp)
+        If puMid > pu Then lo = mid Else hi = mid
+        If hi - lo < 0.0000001 Then Exit For
+    Next it
+    RF_YTC = Round((lo + hi) / 2, 6)
+    Exit Function
+Erro:
+    RF_YTC = CVErr(xlErrValue)
+End Function
+
+' PU dos fluxos IPCA/PRE truncados na dataCall, com callPrice no vencimento do call.
+Private Function CalcPuYtcIpca(hdr As Object, fl As Variant, vd As Variant, vv As Variant, _
+                                d As Date, dc As Date, taxa As Double, cp As Double) As Double
+    Dim ehIpca As Boolean: ehIpca = UCase(CStr(hdr("INDEXADOR"))) = "IPCA"
+    Dim vna As Double: vna = VNAData(vd, vv, d, ehIpca)
+    If vna <= 0 Then Exit Function
+    ' VNA na data de call (para expressar o callPrice como cotacao)
+    Dim vnaCall As Double: vnaCall = VNAData(vd, vv, dc, ehIpca)
+    If vnaCall <= 0 Then Exit Function
+    Dim cotCall As Double: cotCall = cp / vnaCall  ' call price como % do VNA na data call
+
+    Dim i As Long, du As Long, soma As Double
+    For i = 1 To UBound(fl, 1)
+        Dim ev As Date: ev = CDate(fl(i, 1))
+        If ev > d And ev < dc Then
+            du = ContaDU(d, ev)
+            If du > 0 Then soma = soma + fl(i, 6) / (1 + taxa / 100) ^ (du / 252#)
+        End If
+    Next i
+    du = ContaDU(d, dc)
+    ' soma fluxos do dia do call (cupons que venceriam nessa data) + callPrice
+    For i = 1 To UBound(fl, 1)
+        ev = CDate(fl(i, 1))
+        If ev = dc And ev > d Then soma = soma + fl(i, 6) / (1 + taxa / 100) ^ (du / 252#)
+    Next i
+    soma = soma + cotCall / (1 + taxa / 100) ^ (du / 252#)
+    CalcPuYtcIpca = Int(soma * vna * 1000000#) / 1000000#
+End Function
+
+' --- Yield to Worst (YTW) -------------------------------------
+' YTW = min(YTM, YTC_1, YTC_2, ...) para todas as datas de call definidas em
+' META CALL_DATES (ISO, separadas por virgula) e META CALL_PREMIUMS (% sobre VNA,
+' mesmo numero de itens; 0 = par = VNA).
+' Se nao houver CALL_DATES, retorna o YTM (= RF_TAXA).
+' Adicione ao CSV: META<TAB>CALL_DATES<TAB>2028-06-15,2029-06-15
+'                  META<TAB>CALL_PREMIUMS<TAB>0.5,0.25  (% acima do VNA; 0=par)
+Public Function RF_YTW(ticker As String, pu As Double, dataCalc As Variant) As Variant
+    On Error GoTo Erro
+    Dim hdr As Object, fl As Variant, vd As Variant, vv As Variant, cdi As Object
+    If Not PegaAtivo(ticker, hdr, fl, vd, vv, cdi) Then RF_YTW = CVErr(xlErrNA): Exit Function
+    Dim d As Date: d = CDate(dataCalc)
+
+    ' YTM: usa RF_TAXA (bisseccao padrao)
+    Dim ytm As Variant: ytm = RF_TAXA(ticker, pu, dataCalc)
+    If IsError(ytm) Then RF_YTW = ytm: Exit Function
+    Dim ytw As Double: ytw = CDbl(ytm)
+
+    ' Verifica call dates no cabecalho
+    If Not hdr.Exists("CALL_DATES") Then RF_YTW = Round(ytw, 6): Exit Function
+    Dim callDatesStr As String: callDatesStr = CStr(hdr("CALL_DATES"))
+    If Trim(callDatesStr) = "" Then RF_YTW = Round(ytw, 6): Exit Function
+
+    Dim callPremStr As String
+    If hdr.Exists("CALL_PREMIUMS") Then callPremStr = CStr(hdr("CALL_PREMIUMS"))
+
+    Dim callDates() As String: callDates = Split(callDatesStr, ",")
+    Dim callPrems() As String
+    If callPremStr <> "" Then callPrems = Split(callPremStr, ",")
+
+    Dim i As Long, dc As Date, prem As Double, vnaCall As Double, cp As Double, ytc As Variant
+    For i = 0 To UBound(callDates)
+        dc = ParseISO(Trim(callDates(i)))
+        If dc <= d Then GoTo ProxCall  ' call ja vencido
+        prem = 0
+        If callPremStr <> "" Then
+            If i <= UBound(callPrems) Then prem = Val(Trim(callPrems(i)))
+        End If
+        vnaCall = VNAData(vd, vv, dc, UCase(CStr(hdr("INDEXADOR"))) = "IPCA")
+        cp = IIf(vnaCall > 0, vnaCall * (1 + prem / 100), 0)
+        ytc = RF_YTC(ticker, pu, d, dc, cp)
+        If Not IsError(ytc) Then
+            If CDbl(ytc) < ytw Then ytw = CDbl(ytc)
+        End If
+ProxCall:
+    Next i
+    RF_YTW = Round(ytw, 6)
+    Exit Function
+Erro:
+    RF_YTW = CVErr(xlErrValue)
+End Function
+
 ' ================= DICAS DE ARGUMENTO (fx) =================
 Private Sub RegistrarFuncoes()
     On Error Resume Next
@@ -1288,6 +1524,37 @@ Private Sub RegistrarFuncoes()
         ArgumentDescriptions:=Array("Ticker", "Campo")
     Application.MacroOptions Macro:="RF_LISTAR", Category:=CAT, _
         Description:="Lista os ativos disponiveis na pasta de fluxos."
+    ' Breakeven / Swap / YTC / YTW
+    Application.MacroOptions Macro:="RF_INFLA_IMPLICITA", Category:=CAT, _
+        Description:="Inflacao implicita (Fisher) que iguala retorno PRE ao IPCA+. Retorna % a.a.", _
+        ArgumentDescriptions:=Array("Taxa PRE (% a.a., ex: 11.5)", "Taxa IPCA+ real (% a.a., ex: 6.0)")
+    Application.MacroOptions Macro:="RF_BREAKEVEN_CDI", Category:=CAT, _
+        Description:="CDI medio (% a.a.) que iguala retorno de %CDI ao PRE.", _
+        ArgumentDescriptions:=Array("Taxa PRE (% a.a.)", "Percentual do CDI (ex: 115 = 115% CDI)")
+    Application.MacroOptions Macro:="RF_PCT_PARA_CDI", Category:=CAT, _
+        Description:="Converte %CDI em spread CDI+ equivalente (% a.a.). Independe do prazo.", _
+        ArgumentDescriptions:=Array("Percentual do CDI (ex: 98)", "CDI projetado (% a.a.)")
+    Application.MacroOptions Macro:="RF_CDI_PARA_PCT", Category:=CAT, _
+        Description:="Converte spread CDI+ em %CDI equivalente.", _
+        ArgumentDescriptions:=Array("Spread CDI+ (% a.a.)", "CDI projetado (% a.a.)")
+    Application.MacroOptions Macro:="RF_CDI_PARA_IPCA", Category:=CAT, _
+        Description:="Converte CDI+spread em spread IPCA+ equivalente (Fisher). Retorna % a.a.", _
+        ArgumentDescriptions:=Array("Spread CDI+ (% a.a.)", "CDI projetado (% a.a.)", "IPCA projetado (% a.a.)")
+    Application.MacroOptions Macro:="RF_IPCA_PARA_CDI", Category:=CAT, _
+        Description:="Converte spread IPCA+ em spread CDI+ equivalente (Fisher). Retorna % a.a.", _
+        ArgumentDescriptions:=Array("Spread IPCA+ real (% a.a.)", "CDI projetado (% a.a.)", "IPCA projetado (% a.a.)")
+    Application.MacroOptions Macro:="RF_PCT_PARA_IPCA", Category:=CAT, _
+        Description:="Converte %CDI em spread IPCA+ equivalente (%CDI->CDI+->IPCA+). Retorna % a.a.", _
+        ArgumentDescriptions:=Array("Percentual do CDI (ex: 98)", "CDI projetado (% a.a.)", "IPCA projetado (% a.a.)")
+    Application.MacroOptions Macro:="RF_IPCA_PARA_PCT", Category:=CAT, _
+        Description:="Converte spread IPCA+ em %CDI equivalente (IPCA+->CDI+->%CDI). Retorna %.", _
+        ArgumentDescriptions:=Array("Spread IPCA+ real (% a.a.)", "CDI projetado (% a.a.)", "IPCA projetado (% a.a.)")
+    Application.MacroOptions Macro:="RF_YTC", Category:=CAT, _
+        Description:="Yield to Call: TIR com resgate antecipado na dataCall ao callPrice (0=VNA).", _
+        ArgumentDescriptions:=Array("Ticker", "PU de mercado", "Data de calculo", "Data do call", "Preco de call R$ (0=VNA)")
+    Application.MacroOptions Macro:="RF_YTW", Category:=CAT, _
+        Description:="Yield to Worst: min(YTM, YTC_1..n). Datas de call em META CALL_DATES do CSV.", _
+        ArgumentDescriptions:=Array("Ticker", "PU de mercado", "Data de calculo")
 End Sub
 
 ' ================= EXPORTAR =================

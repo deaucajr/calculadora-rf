@@ -25,6 +25,23 @@ Add-in Excel para precificação offline de debentures, CRIs e CRAs brasileiros,
 | `=RF_FLUXO("EGIEA6", 6.5, "2026-06-14")` | Tabela completa de fluxos (array) |
 | `=RF_INFO("EGIEA6", "EMISSOR")` | Metadado do ativo (emissor, vencimento, etc.) |
 | `=RF_LISTAR()` | Lista todos os tickers disponíveis |
+| `=RF_YTC("EGIEA6", 1447, "2026-06-15", "2028-06-15")` | Yield to Call (taxa na data de call) |
+| `=RF_YTW("EGIEA6", 1447, "2026-06-15")` | Yield to Worst (menor entre YTM e todos os YTCs) |
+
+### Funções de Swap / Equivalência entre Indexadores
+
+| Função | O que faz |
+|--------|-----------|
+| `=RF_INFLA_IMPLICITA(12.5, 6.5)` | Inflação implícita PRÉ vs IPCA+ (Fisher) |
+| `=RF_BREAKEVEN_CDI(12.5, 100)` | CDI médio de equilíbrio PRÉ vs %CDI |
+| `=RF_PCT_PARA_CDI(98, 13.5)` | %CDI → spread CDI+ equivalente |
+| `=RF_CDI_PARA_PCT(0.5, 13.5)` | Spread CDI+ → %CDI equivalente |
+| `=RF_CDI_PARA_IPCA(2.0, 13.5, 5.2)` | Spread CDI+ → spread IPCA+ (Fisher) |
+| `=RF_IPCA_PARA_CDI(10.0, 13.5, 5.2)` | Spread IPCA+ → spread CDI+ |
+| `=RF_PCT_PARA_IPCA(100, 13.5, 5.2)` | %CDI → spread IPCA+ (cadeia completa) |
+| `=RF_IPCA_PARA_PCT(8.0, 13.5, 5.2)` | Spread IPCA+ → %CDI |
+
+Cadeia de equivalência: `%CDI ↔ CDI+spread ↔ PRÉ ↔ IPCA+spread`
 
 Documentação completa com exemplos e retornos esperados: [`documentacao_RF_Calc.txt`](documentacao_RF_Calc.txt)
 
@@ -43,6 +60,7 @@ Documentação completa com exemplos e retornos esperados: [`documentacao_RF_Cal
 │   │   ├── rotina_diaria.py            ← Detecta novos + atualiza (agendável)
 │   │   ├── importar_curva_historica.py ← Curva DI histórica via TaxaSwap B3
 │   │   ├── importar_curva_bloomberg.py ← Curva DI via planilha Bloomberg (OD*)
+│   │   ├── gerar_planilha_swap.py      ← Planilha Excel de analise de swap/breakeven
 │   │   ├── atualizar_amortpct.py       ← Popula amortizações em ativos IPCA+
 │   │   ├── validar.py                  ← Compara cálculo local vs. API B3
 │   │   └── build_xlam.py               ← Gera RF_Calc.xlam via COM
@@ -115,6 +133,27 @@ python scripts/importar_curva_bloomberg.py minha_serie.csv
 ```
 
 Metodologia detalhada: [`wiki/tema-curva-di-historica.md`](wiki/tema-curva-di-historica.md)
+
+---
+
+## Planilha de Swap
+
+Gera um arquivo Excel com análise completa de equivalência entre indexadores:
+
+```bash
+# Defaults: CDI=13.5%, IPCA=5.2%, CDI+2.0%, nocional=1M, prazo=5 anos
+python scripts/gerar_planilha_swap.py
+
+# Customizado
+python scripts/gerar_planilha_swap.py --cdi 13.5 --ipca 5.2 --spread-cdi 1.5 --pct-cdi 98 --nocional 5000000 --output meu_swap.xlsx
+```
+
+Abas geradas:
+- **Equivalencias** — tabela de conversão %CDI/CDI+/IPCA+ para qualquer nível
+- **Swap CDI+↔IPCA+** — NII projetado semestral para um swap CDI+ vs IPCA+
+- **Swap %CDI↔IPCA+** — mesmo com %CDI e sensibilidade por nível de CDI
+- **Breakeven** — PRÉ vs IPCA+ e %CDI vs PRÉ com situação atual marcada
+- **Fórmulas** — referência completa das fórmulas e convenções do mercado
 
 ---
 
