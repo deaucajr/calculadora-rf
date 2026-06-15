@@ -61,6 +61,8 @@ Documentação completa com exemplos e retornos esperados: [`documentacao_RF_Cal
 │   │   ├── importar_curva_historica.py ← Curva DI histórica via TaxaSwap B3
 │   │   ├── importar_curva_bloomberg.py ← Curva DI via planilha Bloomberg (OD*)
 │   │   ├── gerar_planilha_swap.py      ← Planilha Excel de analise de swap/breakeven
+│   │   ├── gerar_template_ativo.py     ← Gera CADASTRO_ATIVO.xlsx (template de cadastro)
+│   │   ├── importar_planilha.py        ← Converte o Excel preenchido em CSV do add-in
 │   │   ├── atualizar_amortpct.py       ← Popula amortizações em ativos IPCA+
 │   │   ├── validar.py                  ← Compara cálculo local vs. API B3
 │   │   └── build_xlam.py               ← Gera RF_Calc.xlam via COM
@@ -99,6 +101,32 @@ python scripts/importar_todos.py
 ```
 
 Após a instalação, o add-in é carregado automaticamente toda vez que o Excel abre.
+
+---
+
+## Cadastro manual de ativos
+
+Para ativos que não estão na API B3 ou lançamentos novos:
+
+1. Abra `sistema/dist/CADASTRO_ATIVO.xlsx`
+2. Aba **Identificacao**: preencha os campos amarelos (Ticker, Indexador, Taxa, datas)
+3. Aba **Fluxo_de_Caixa**: apague os exemplos e cole sua tabela de pagamentos:
+
+| Data | Paga Juros? | % Amortização | Taxa (% a.a.) |
+|------|-------------|---------------|---------------|
+| 15/01/2027 | S | 0 | 6.5 |
+| 15/01/2028 | S | 25 | 6.5 |
+| 15/01/2029 | S | 25 | 6.5 |
+| 15/01/2030 | S | 50 | 6.5 |
+
+4. Salve o arquivo e rode:
+```bash
+cd sistema
+python scripts/importar_planilha.py CADASTRO_ATIVO.xlsx
+```
+5. Teste no Excel: `=RF_PU("SEU_TICKER"; 6.5; HOJE())`
+
+O script calcula automaticamente os dias úteis (DU) e o FC% de cada evento. Para gerar um novo template em branco: `python scripts/gerar_template_ativo.py`
 
 ---
 
