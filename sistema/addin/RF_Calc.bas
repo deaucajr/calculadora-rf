@@ -46,6 +46,7 @@ Private gAmortP As Variant  ' amortPcts() do ativo corrente (% de VNE); Empty p/
 
 Public Sub Auto_Open()
     On Error Resume Next
+    Application.Calculation = xlCalculationAutomatic   ' garante recalculo automatico
     RegistrarFuncoes        ' so registra dicas; nao carrega dados (leve)
 End Sub
 
@@ -422,6 +423,33 @@ Private Function BlocoSintetico(cf0 As Variant, y0 As Double, dCalc As Date, d0 
     BlocoSintetico = outc
 End Function
 
+' Aplica offset de DU em um bloco CDI sem reprecificar (preserva VF/PV; so ajusta prazo).
+' Usado no fallback de ObtemCfCdi quando nao ha curva DI para a data alvo.
+Private Function BlocoComOffset(cf0 As Variant, dCalc As Date, d0 As Date) As Variant
+    If IsEmpty(cf0) Then Exit Function
+    Dim n As Long: n = UBound(cf0, 1)
+    Dim tmp() As Variant: ReDim tmp(1 To n, 1 To 4)
+    Dim desloc As Long
+    If dCalc >= d0 Then desloc = -ContaDU(d0, dCalc) Else desloc = ContaDU(dCalc, d0)
+    Dim i As Long, cnt As Long, duD As Long
+    cnt = 0
+    For i = 1 To n
+        duD = CLng(cf0(i, 4)) + desloc
+        If duD > 0 Then
+            cnt = cnt + 1
+            tmp(cnt, 1) = cf0(i, 1): tmp(cnt, 2) = cf0(i, 2)
+            tmp(cnt, 3) = cf0(i, 3): tmp(cnt, 4) = duD
+        End If
+    Next i
+    If cnt = 0 Then Exit Function
+    Dim out() As Variant: ReDim out(1 To cnt, 1 To 4)
+    Dim j As Long
+    For i = 1 To cnt
+        For j = 1 To 4: out(i, j) = tmp(i, j): Next j
+    Next i
+    BlocoComOffset = out
+End Function
+
 Private Sub OrdenaCf(ByRef cf As Variant)
     Dim i As Long, j As Long, k As Long, tmp As Variant
     For i = LBound(cf, 1) To UBound(cf, 1) - 1
@@ -466,8 +494,18 @@ Private Function ObtemCfCdi(hdr As Object, cdi As Object, dCalc As Date, ByRef c
         End If
     End If
 
-    Dim k As String: k = MelhorChaveCdi(cdi, dCalc)               ' fallback
-    If k <> "" Then cf = cdi(k): ObtemCfCdi = True
+    ' Fallback: bloco mais recente com offset de DU aplicado (PU varia com a data mesmo sem curva)
+    Dim k As String: k = MelhorChaveCdi(cdi, dCalc)
+    If k <> "" Then
+        Dim cfFb As Variant: cfFb = BlocoComOffset(cdi(k), dCalc, ParseISO(k))
+        If Not IsEmpty(cfFb) Then
+            If chave <> "" Then gCfCache(chave) = cfFb
+            cf = cfFb
+        Else
+            cf = cdi(k)   ' ultimo recurso: sem offset (bloco bruto)
+        End If
+        ObtemCfCdi = True
+    End If
 End Function
 
 Private Function PegaAtivo(ticker As String, ByRef hdr As Object, ByRef fl As Variant, _
@@ -684,6 +722,7 @@ End Sub
 ' ================= UDFs =================
 
 Public Function RF_PU(ticker As String, taxa As Double, dataCalc As Variant) As Variant
+    Application.Volatile False  ' recalcula quando argumento muda
     On Error GoTo Erro
     Dim hdr As Object, fl As Variant, vd As Variant, vv As Variant, cdi As Object
     If Not PegaAtivo(ticker, hdr, fl, vd, vv, cdi) Then RF_PU = CVErr(xlErrNA): Exit Function
@@ -696,6 +735,7 @@ Erro:
 End Function
 
 Public Function RF_TAXA(ticker As String, pu As Double, dataCalc As Variant) As Variant
+    Application.Volatile False
     On Error GoTo Erro
     Dim hdr As Object, fl As Variant, vd As Variant, vv As Variant, cdi As Object
     If Not PegaAtivo(ticker, hdr, fl, vd, vv, cdi) Then RF_TAXA = CVErr(xlErrNA): Exit Function
@@ -794,6 +834,7 @@ Prox:
 End Sub
 
 Public Function RF_VNA(ticker As String, dataCalc As Variant) As Variant
+    Application.Volatile False
     On Error GoTo Erro
     Dim hdr As Object, fl As Variant, vd As Variant, vv As Variant, cdi As Object
     If Not PegaAtivo(ticker, hdr, fl, vd, vv, cdi) Then RF_VNA = CVErr(xlErrNA): Exit Function
