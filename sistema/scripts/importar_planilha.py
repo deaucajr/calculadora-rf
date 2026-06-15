@@ -172,8 +172,11 @@ def validar(meta: dict, linhas: list) -> list[str]:
             "Use importar_fluxos.py com a API B3."
         )
 
-    taxa_emissao = _ler_float(meta.get("TAXA_DE_EMISSAO") or meta.get("TAXA_EMISSAO") or
-                               meta.get("TAXA") or meta.get("TAXA_DE_EMISSAO_"))
+    taxa_emissao = _ler_float(
+        meta.get("TAI_TAXA_DE_EMISSAO") or meta.get("TAXA_DE_EMISSAO") or
+        meta.get("TAXA_EMISSAO") or meta.get("TAI") or meta.get("TAXA") or
+        meta.get("TAI_TAXA_DE_EMISSAO_")
+    )
     if taxa_emissao is None or taxa_emissao <= 0:
         erros.append("Taxa de Emissao nao preenchida ou invalida.")
 
@@ -219,8 +222,11 @@ def calcular_csv(meta: dict, linhas: list) -> str:
     indexador   = "IPCA" if "IPCA" in idx_raw else "PRE"
     emissor     = _ler_str(meta.get("EMISSOR") or "MANUAL").replace(SEP, " ")
     vne         = _ler_float(meta.get("VNE") or meta.get("VNE_") or 1000.0, 1000.0)
-    taxa_em     = _ler_float(meta.get("TAXA_DE_EMISSAO") or meta.get("TAXA_EMISSAO") or
-                              meta.get("TAXA") or meta.get("TAXA_DE_EMISSAO_"), 0.0)
+    taxa_em     = _ler_float(
+        meta.get("TAI_TAXA_DE_EMISSAO") or meta.get("TAXA_DE_EMISSAO") or
+        meta.get("TAXA_EMISSAO") or meta.get("TAI") or meta.get("TAXA") or
+        meta.get("TAI_TAXA_DE_EMISSAO_"), 0.0
+    )
     rating      = _ler_str(meta.get("RATING") or "")
     garantia    = _ler_str(meta.get("GARANTIA") or "")
     d_emissao   = _ler_data(meta.get("DATA_DE_EMISSAO") or meta.get("DATA_EMISSAO") or

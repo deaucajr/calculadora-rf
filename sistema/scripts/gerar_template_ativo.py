@@ -68,7 +68,7 @@ def sheet_identificacao(wb, ticker_padrao=""):
         ("Data de Emissao *",     "",             "DD/MM/AAAA — data de inicio da rentabilidade"),
         ("Vencimento *",          "",             "DD/MM/AAAA — data do ultimo pagamento"),
         ("VNE (R$) *",            1000,           "Valor Nominal de Emissao (geralmente 1000)"),
-        ("Taxa de Emissao *",     "",             "Taxa contratual em % a.a. (ex: 6.5 para IPCA+6,5%)"),
+        ("Tai — Taxa de Emissao *","",             "Taxa CONTRATUAL em % a.a. (ex: 6.5 p/ IPCA+6,5% | 12.0 p/ PRE 12%)"),
         ("Rating",                "",             "Opcional: AAA, AA+, AA, AA-, A+, A, A-..."),
         ("Garantia",              "",             "Opcional: Quirografaria | Real | Fidejussoria"),
         ("Codigo CETIP/ISIN",     "",             "Opcional"),
@@ -119,38 +119,52 @@ def sheet_fluxo(wb):
     ws.row_dimensions[1].height = 24
 
     # Instrucao rapida
-    ws.merge_cells("A2:D2")
+    ws.merge_cells("A2:E2")
     inst = ws["A2"]
     inst.value = (
         "Data: DD/MM/AAAA   |   "
         "Paga Juros: S ou N   |   "
-        "% Amortizacao: 0 a 100 (coluna inteira deve somar 100 se amortizante, ou 0 se bullet)   |   "
-        "Taxa: % a.a. contratual (deixe em branco p/ usar a da aba Identificacao)"
+        "% Amortizacao: soma deve ser 100 (amortizante) ou deixe 0 em tudo e 100 no vencimento (bullet)   |   "
+        "Tai: taxa CONTRATUAL do ativo em % a.a. — deixe em BRANCO se for igual em todos os periodos (usa o valor da aba Identificacao)"
     )
     inst.font = Font(italic=True, size=8, color="FF404040")
     inst.alignment = Alignment(horizontal="left", vertical="center", wrap_text=True)
-    ws.row_dimensions[2].height = 30
+    ws.row_dimensions[2].height = 36
 
     # Cabecalho das colunas
-    hdrs = ["Data", "Paga Juros? (S/N)", "% Amortizacao", "Taxa (% a.a.)"]
-    larguras = [16, 22, 20, 18]
-    for col, (h, w) in enumerate(zip(hdrs, larguras), 1):
+    # Coluna D (Tai) fica cinza para indicar que e opcional
+    hdrs    = ["Data", "Paga Juros? (S/N)", "% Amortizacao", "Tai — Taxa Contratual (% a.a.)"]
+    larguras = [16,     22,                  20,               30]
+    fills_hdr = [AZUL, AZUL, AZUL, "FF4A4A4A"]  # coluna Tai mais escura = opcional
+    for col, (h, w, fh) in enumerate(zip(hdrs, larguras, fills_hdr), 1):
         c = ws.cell(row=3, column=col, value=h)
-        c.font = bold(10, BRANCO); c.fill = fill(AZUL)
+        c.font = bold(10, BRANCO); c.fill = fill(fh)
         c.border = borda(); c.alignment = centro()
         ws.column_dimensions[get_column_letter(col)].width = w
+
+    # Legenda na coluna E
+    ws.column_dimensions["E"].width = 48
+    notas_col = [
+        (3, "← DEIXAR EM BRANCO na maioria dos casos"),
+        (4, "← Em branco = usa Tai da aba Identificacao"),
+        (8, "← Preencha so em bonds com step-up (taxa muda por periodo)"),
+    ]
+    for row_n, txt in notas_col:
+        c = ws.cell(row=row_n, column=5, value=txt)
+        c.font = Font(italic=True, size=8, color="FF808080")
+
     ws.row_dimensions[3].height = 22
 
     # Linhas de exemplo (cinza claro, para o usuario ver o formato e apagar)
     exemplos = [
-        ("15/01/2027", "S", 0,   6.5),
-        ("15/07/2027", "S", 0,   6.5),
-        ("15/01/2028", "S", 0,   6.5),
-        ("15/07/2028", "S", 25,  6.5),
-        ("15/01/2029", "S", 25,  6.5),
-        ("15/07/2029", "S", 25,  6.5),
-        ("15/01/2030", "S", 25,  6.5),
-        ("15/07/2030", "S", 25,  6.5),
+        ("15/01/2027", "S", 0,   None),   # Tai em branco = usa da identificacao
+        ("15/07/2027", "S", 0,   None),
+        ("15/01/2028", "S", 0,   None),
+        ("15/07/2028", "S", 25,  None),
+        ("15/01/2029", "S", 25,  None),
+        ("15/07/2029", "S", 25,  None),
+        ("15/01/2030", "S", 25,  None),
+        ("15/07/2030", "S", 25,  None),
     ]
     for i, (dt, j, amort, taxa) in enumerate(exemplos, 4):
         fmts = ["DD/MM/YYYY", "@", "0.00", "0.00##"]
@@ -207,7 +221,16 @@ def sheet_ajuda(wb):
         "    % Amortizacao  : quanto do principal e pago (0 a 100).",
         "                     Bullet: todos 0 exceto o vencimento que tem 100.",
         "                     Amortizante: ex 25, 25, 25, 25 (soma = 100).",
-        "    Taxa (% a.a.)  : taxa do periodo (opcional — deixe em branco p/ usar a da aba anterior)",
+        "    Tai (% a.a.)   : Taxa CONTRATUAL do ativo — define o tamanho do cupom.",
+        "                     Para IPCA+6,5%: coloque 6.5.  Para PRE 12%: coloque 12.",
+        "                     DEIXE EM BRANCO na maioria dos casos: o script usa o valor",
+        "                     de 'Taxa de Emissao' preenchido na aba Identificacao.",
+        "                     Preencha so em bonds com step-up (taxa muda por periodo).",
+        "",
+        "  IMPORTANTE — TAI x TAXA DE MERCADO:",
+        "    Tai    = taxa CONTRATUAL (define o fluxo de caixa — vai para o CSV)",
+        "    Taxa de mercado = usada depois no Excel: =RF_PU(ticker; TAXA_MERCADO; data)",
+        "    Sao coisas diferentes! O Tai e fixo no prospecto; a de mercado oscila.",
         "",
         "  EXEMPLOS:",
         "  Bullet IPCA+6,5%:      Data      | S | 0  | (branco)",
