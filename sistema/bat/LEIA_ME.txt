@@ -1,0 +1,33 @@
+============================================================
+  RF_Calc — Scripts de Automacao (.bat)
+============================================================
+Execute na ordem numerica:
+
+  1_sincronizar_completo.bat    ← PRIMEIRA VEZ: baixa TODOS os ativos
+                                  do FI Analytics (~30-60 min)
+                                  So precisa rodar 1 vez.
+
+  2_sincronizar_rapido.bat      ← DIARIO: atualiza so o que mudou
+                                  Rode toda manha (antes de abrir o Excel)
+                                  ~2-5 min
+
+  3_instalar_addin.bat          ← Instala/reatualiza o add-in no Excel
+                                  Rode apos 1_sincronizar_completo.bat
+                                  ou quando atualizar o codigo VBA
+
+  4_validar.bat                 ← TESTES: compara precos locais vs API
+                                  Rode para verificar se tudo esta correto
+
+============================================================
+Fluxo tipico:
+
+  No seu PC (dono dos dados):
+    1. Execute 1_sincronizar_completo.bat (1 vez)
+    2. Execute 3_instalar_addin.bat
+    3. Agende 2_sincronizar_rapido.bat para rodar diariamente
+       (ou use: python scripts\rotina_diaria_v2.py --agendar)
+    4. Abra o Excel e teste com =RF_LISTAR()
+
+  Para colegas (so usam o Excel, sem Python):
+    - Veja INSTALAR.md no raiz do projeto
+============================================================

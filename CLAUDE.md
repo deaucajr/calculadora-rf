@@ -1,12 +1,91 @@
-# Wiki de Negócios — Schema e Instruções para o LLM
+# RF_Calc v3 — Projeto Definitivo
 
-Este é o arquivo de configuração da wiki. Leia-o inteiro no início de cada sessão antes de qualquer outra ação.
+**Add-in Excel para precificação de renda fixa brasileira. Fonte: FI Analytics. VNA: cálculo próprio.**
 
 ---
 
-## Propósito
+## Guia rápido para o LLM
 
-Esta wiki serve como base de conhecimento persistente sobre **negócios e trabalho**: projetos, clientes, decisões, análises competitivas, reuniões, processos e lições aprendidas. O usuário é o curador; o LLM escreve e mantém toda a wiki.
+### Se o usuário disser "importar ativos" ou "atualizar dados":
+```bash
+cd sistema && python scripts/importar_tudo.py
+```
+
+### Se o usuário disser "validar" ou "testar":
+```bash
+cd sistema && python scripts/importar_tudo.py --validar 20
+```
+
+### Se o usuário disser "importar um ticker específico":
+```bash
+cd sistema && python scripts/importar_tudo.py --ticker EGIEA6
+```
+
+### Se algo quebrar:
+1. Verifique `sistema/config/tokens.txt` — API key e email corretos?
+2. Verifique internet — consegue acessar https://endpoint.fi-analytics.com.br?
+3. Rode `python -c "from src.db import init_db; init_db()"` para recriar o DB
+4. Rode `python scripts/corrigir_vna_rapido.py` se VNA estiver 1.0
+
+---
+
+## Arquitetura
+
+```
+FI Analytics (API)                    BACEN (SGS)
+      │                                     │
+      ├─ getuserbonds (lista bonds)         ├─ CDI diário (série 12)
+      ├─ debenturecalculator (fluxos)       ├─ IPCA mensal (série 433)
+      └─ cricracalculator (CRIs/CRAs)       └─ ANBIMA Focus (projeções)
+      │                                     │
+      └──────────┬──────────────────────────┘
+                 ▼
+         importar_tudo.py
+                 │
+         ┌───────┴────────┐
+         ▼                ▼
+   fluxos/*.csv       rf.db (SQLite)
+         │
+         ▼
+   RF_Calc.xlam (VBA) → Excel
+```
+
+### Arquivos principais
+
+| Arquivo | Função |
+|---------|--------|
+| `PASSO_A_PASSO.md` | **GUIA PRINCIPAL** — instruções nível iniciante |
+| `DOCUMENTACAO_FORMULAS.md` | Todas as fórmulas com exemplos reais |
+| `sistema/scripts/importar_tudo.py` | **SCRIPT PRINCIPAL** — importa tudo do FI Analytics |
+| `sistema/src/vna_calc.py` | Cálculo próprio de VNA (IPCA/CDI/PRE) |
+| `sistema/src/fi_client.py` | Cliente da API FI Analytics |
+| `sistema/src/fmt_br.py` | Formatador brasileiro (; e vírgula) |
+| `sistema/addin/RF_Calc.bas` | Código VBA do add-in Excel |
+| `sistema/config/tokens.txt` | 🔒 SUAS SENHAS (gitignored) |
+| `sistema/bat/` | Scripts .bat de automação |
+
+### ⚠️ Segurança
+
+- `tokens.txt` contém API keys reais — **NUNCA comitar no GitHub**
+- `tokens_template.txt` tem valores genéricos — **esse sim vai pro GitHub**
+- Nunca hardcode senhas no código Python
+
+### Formato dos CSVs
+
+- Separador: `;` (ponto-e-vírgula — Excel brasileiro)
+- Decimal: `,` (vírgula — padrão brasileiro)
+- Encoding: UTF-8 com BOM
+- Colunas: `DATA;EVENTO;VF;PV;DU;TAI_PCT;AMORT_PCT`
+
+### Pipeline de cálculo
+
+1. **VNA**: calculado do zero desde `inicio_rentabilidade`
+   - IPCA: VNE × IPCA_index(emissão, hoje) × (1 - amort_acumulada)
+   - CDI+: VNE × CDI_factor(emissão, hoje)
+   - %CDI: VNE × CDI_factor ^ (pct/100)
+   - PRE: VNE (constante)
+2. **PU**: Σ FC_i% / (1+taxa)^(du_i/252) × VNA(data)
+3. **Erro alvo**: < 0,00001 vs FI Analytics (5ª-6ª casa decimal)
 
 ---
 

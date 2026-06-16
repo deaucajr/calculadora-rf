@@ -1,25 +1,38 @@
 Attribute VB_Name = "RF_Calc"
 ' ============================================================
-'  CALCULADORA DE RENDA FIXA  -  ADD-IN (RF_Calc)
-'  Precifica debentures, CRIs, CRAs (IPCA, PRE, CDI, %CDI).
+'  CALCULADORA DE RENDA FIXA  -  ADD-IN (RF_Calc) v3
+'  Precifica QUALQUER ativo de renda fixa brasileiro:
+'    - Debentures, CRIs, CRAs (IPCA, PRE, CDI+, %CDI)
+'    - NTN-B e NTN-F (titulos publicos)
+'    - DI Futuro (DI1F*)
 '  Le os dados de fluxos\<TICKER>.csv SOB DEMANDA (lazy load):
 '  abertura instantanea e leve mesmo com milhares de ativos.
+'
+'  FONTE PRIMARIA: FI Analytics (juros incorporados, gross-up, DI equivalente)
+'  FONTE SECUNDARIA: ANBIMA Data (caracteristicas, ratings, amortizacoes)
+'  VNA: calculado LOCALMENTE (IPCA via BACEN, CDI via BACEN serie 12)
 '
 '  MODELO (IPCA/PRE):
 '    PU(data,taxa) = [ Soma FC_i% / (1+taxa/100)^(du_i/252) ] * VNA(data)
 '    FC% e' data-independente; VNA(data) vem dos pontos no CSV (interpola).
 '  CDI/%CDI: exato na DATA_FLUXO do CSV (desconto DI embutido no PV).
+'  DI FUTURO: PU = 100000/(1+taxa/100)^(du/252)
+'  NTN-B: cupom semestral + principal no vencimento
 '
-'  FUNCOES (taxa em % a.a.; data obrigatoria):
-'    RF_PU(ticker,taxa,data)  RF_TAXA(ticker,pu,data)  RF_DURATION(ticker,taxa,data)
-'    RF_DV01(ticker,taxa,data) RF_CONVEXIDADE(ticker,taxa,data)
-'    RF_VNA(ticker,data)      RF_FLUXO(ticker,taxa,data)
-'    RF_VENCIMENTO(ticker)    RF_ATUALIZADO_EM(ticker)  RF_PROXIMO_EVENTO(ticker,data)
-'    RF_SPREAD(ticker)        RF_INFO(ticker,campo)     RF_LISTAR()
-'  DI FUTURO:  RF_DI_PU(venc,taxa,data) RF_DI_TAXA(venc,pu,data) RF_DI_DV01(...)
-'              RF_DI_DURATION(venc,data) RF_DI_CURVA(venc,data) [taxa da curva B3]
-'  NTN-B:      RF_NTNB_PU(venc,taxa,data,vna) RF_NTNB_TAXA(venc,pu,data,vna)
-'              RF_NTNB_COTACAO(venc,taxa,data) RF_NTNB_DV01(...,vna) RF_NTNB_DURATION(venc,taxa,data)
+'  FUNCOES UNIVERSAIS (funcionam para QUALQUER ticker):
+'    RF_PU(ticker,taxa,data)     — PU para debenture, NTN-B ou DI Futuro
+'    RF_TAXA(ticker,pu,data)     — Taxa/YTM implicita
+'    RF_DURATION(ticker,taxa,data) RF_DV01(ticker,taxa,data)
+'    RF_VNA(ticker,data)         RF_FLUXO(ticker,taxa,data)  [7 colunas: DATA|EVENTO|DU|VF|PV|%TAI|%AMORT]
+'    RF_VENCIMENTO(ticker)       RF_PROXIMO_EVENTO(ticker,data)
+'    RF_SPREAD(ticker)           RF_INFO(ticker,campo)        RF_LISTAR()
+'    RF_GROSSUP(ticker,pu,data)  — Taxa com gross-up (taxedM2MRate)
+'  SWAP / BREAKEVEN:
+'    RF_INFLA_IMPLICITA RF_BREAKEVEN_CDI  RF_PCT_PARA_CDI
+'    RF_CDI_PARA_PCT RF_CDI_PARA_IPCA  RF_IPCA_PARA_CDI
+'    RF_PCT_PARA_IPCA RF_IPCA_PARA_PCT
+'  CALL:
+'    RF_YTC(ticker,pu,data,callDate,callPrice)  RF_YTW(ticker,pu,data)
 '  MACROS (Alt+F8): RF_ATUALIZAR (limpa cache)   RF_EXPORTAR (planilha p/ enviar)
 ' ============================================================
 Option Explicit
@@ -29,7 +42,13 @@ Option Explicit
 '     %APPDATA%\Microsoft\AddIns\rf_fluxos.txt (escrito pelo instalador), ou este. <<<
 Private Const FLUXOS_DIR As String = _
     "C:\Users\Nitro 5\OneDrive\Documentos\Claude_code\Projeto_calculadora_excel\Codigo_Fluxo\sistema\data\fluxos\"
-Private Const SEP As String = vbTab
+Private Const SEP As String = ";"
+
+' Converte string com virgula decimal (padrao brasileiro) -> Double.
+' "1448,562894" -> 1448.562894.  Seguro: troca , por . antes do ParseNum().
+Private Function ParseNum(s As String) As Double
+    ParseNum = VBA.Val(Replace(s, ",", "."))
+End Function
 Private Const NTNB_CUPOM As Double = 0.0295630140987    ' NTN-B: (1,06)^0,5 - 1 (cupom semestral)
 
 Private gAtivos As Object   ' ticker -> Array(hdr, flows2D, vDates, vVals, cdi, amortD, amortP)
@@ -135,7 +154,7 @@ Private Sub GaranteCdi()
     Do While Not EOF(fnum)
         Line Input #fnum, linha
         p = Split(linha, SEP)
-        If UBound(p) >= 1 Then gCdi(p(0)) = Val(p(1))
+        If UBound(p) >= 1 Then gCdi(p(0)) = ParseNum(p(1))
     Loop
 Fim:
     On Error Resume Next
@@ -196,36 +215,36 @@ Private Function CarregarAtivo(ticker As String) As Boolean
                 If UBound(p) >= 6 Then
                     nf = nf + 1
                     fl(nf, 1) = ParseISO(p(1)): fl(nf, 2) = p(2)
-                    fl(nf, 3) = Val(p(3)): fl(nf, 4) = Val(p(4))
-                    fl(nf, 5) = CLng(Val(p(5))): fl(nf, 6) = Val(p(6))
+                    fl(nf, 3) = ParseNum(p(3)): fl(nf, 4) = ParseNum(p(4))
+                    fl(nf, 5) = CLng(ParseNum(p(5))): fl(nf, 6) = ParseNum(p(6))
                 End If
             Case "VNA"
                 If UBound(p) >= 2 Then
                     nv = nv + 1
-                    vd(nv) = CDbl(ParseISO(p(1))): vv(nv) = Val(p(2))
+                    vd(nv) = CDbl(ParseISO(p(1))): vv(nv) = ParseNum(p(2))
                 End If
             Case "FLUXOD"   ' CDI legado: dc, de, tipo, vf, pv, du
                 If UBound(p) >= 6 Then
                     If Not cdiTmp.Exists(p(1)) Then cdiTmp.Add p(1), New Collection
-                    cdiTmp(p(1)).Add Array(ParseISO(p(2)), Val(p(4)), Val(p(5)), CLng(Val(p(6))))
+                    cdiTmp(p(1)).Add Array(ParseISO(p(2)), ParseNum(p(4)), ParseNum(p(5)), CLng(ParseNum(p(6))))
                 End If
             Case "AMORTPCT"
                 If UBound(p) >= 2 Then
                     na = na + 1
                     If na > UBound(aD) Then ReDim Preserve aD(1 To na + 100): ReDim Preserve aP(1 To na + 100)
-                    aD(na) = CDbl(ParseISO(p(1))): aP(na) = Val(p(2))
+                    aD(na) = CDbl(ParseISO(p(1))): aP(na) = ParseNum(p(2))
                 End If
             ' ── formato novo (chave-valor / tabela data) ──────────────────────────
             Case "CDI"   ' novo: dc, de, vf, pv, du
                 If UBound(p) >= 5 Then
                     If Not cdiTmp.Exists(p(1)) Then cdiTmp.Add p(1), New Collection
-                    cdiTmp(p(1)).Add Array(ParseISO(p(2)), Val(p(3)), Val(p(4)), CLng(Val(p(5))))
+                    cdiTmp(p(1)).Add Array(ParseISO(p(2)), ParseNum(p(3)), ParseNum(p(4)), CLng(ParseNum(p(5))))
                 End If
             Case "AMORT"   ' novo amortizacao: data, pct
                 If UBound(p) >= 2 Then
                     na = na + 1
                     If na > UBound(aD) Then ReDim Preserve aD(1 To na + 100): ReDim Preserve aP(1 To na + 100)
-                    aD(na) = CDbl(ParseISO(p(1))): aP(na) = Val(p(2))
+                    aD(na) = CDbl(ParseISO(p(1))): aP(na) = ParseNum(p(2))
                 End If
             Case "DATA"  ' cabecalho da tabela "DATA JUROS_TAI AMORT_TAI" -> ignora
             Case Else
@@ -241,7 +260,7 @@ Private Function CarregarAtivo(ticker As String) As Boolean
                         If dcStr <> "" Then
                             nv = nv + 1
                             If nv > UBound(vd) Then ReDim Preserve vd(1 To nv + 100): ReDim Preserve vv(1 To nv + 100)
-                            vd(nv) = CDbl(ParseISO(dcStr)): vv(nv) = Val(p(1))
+                            vd(nv) = CDbl(ParseISO(dcStr)): vv(nv) = ParseNum(p(1))
                         End If
                     End If
                 ElseIf UBound(p) = 2 Then
@@ -251,8 +270,8 @@ Private Function CarregarAtivo(ticker As String) As Boolean
                         Dim evDate As Date: evDate = ParseISO(p(0))
                         Dim d0Date As Date: d0Date = 0
                         If hdr.Exists("DATA_FLUXO") Then d0Date = ParseISO(CStr(hdr("DATA_FLUXO")))
-                        Dim jTai As Double: jTai = Val(p(1))
-                        Dim aTai As Double: aTai = Val(p(2))
+                        Dim jTai As Double: jTai = ParseNum(p(1))
+                        Dim aTai As Double: aTai = ParseNum(p(2))
                         fl(nf, 1) = CDbl(evDate)
                         fl(nf, 2) = IIf(jTai > 0 And aTai > 0, "J+A", IIf(aTai > 0, "A", "J"))
                         fl(nf, 3) = 0
@@ -358,7 +377,7 @@ Private Sub GaranteCurva()
         p = Split(linha, SEP)
         If UBound(p) >= 2 Then
             If Not tmp.Exists(p(0)) Then tmp.Add p(0), New Collection
-            tmp(p(0)).Add Array(CLng(Val(p(1))), Val(p(2)))
+            tmp(p(0)).Add Array(CLng(ParseNum(p(1))), ParseNum(p(2)))
         End If
     Loop
     Close #fnum
@@ -533,7 +552,7 @@ Private Function ObtemCfCdi(hdr As Object, cdi As Object, dCalc As Date, ByRef c
     If Not gCurva Is Nothing And d0s <> "" Then
         If gCurva.Exists(dc) And gCurva.Exists(d0s) And cdi.Exists(d0s) Then
             Dim syn As Variant
-            syn = BlocoSintetico(cdi(d0s), Val(CStr(hdr("TAXA_REF"))), dCalc, ParseISO(d0s), gCurva(d0s), gCurva(dc))
+            syn = BlocoSintetico(cdi(d0s), ParseNum(CStr(hdr("TAXA_REF"))), dCalc, ParseISO(d0s), gCurva(d0s), gCurva(dc))
             If Not IsEmpty(syn) Then
                 If chave <> "" Then gCfCache(chave) = syn
                 cf = syn: ObtemCfCdi = True: Exit Function
@@ -623,7 +642,7 @@ Private Sub GaranteIpca()
     Do While Not EOF(fnum)
         Line Input #fnum, linha
         p = Split(linha, SEP)
-        If UBound(p) >= 1 Then gIpca(p(0)) = Val(p(1))
+        If UBound(p) >= 1 Then gIpca(p(0)) = ParseNum(p(1))
     Loop
     Close #fnum
     Exit Sub
@@ -747,7 +766,7 @@ Private Sub CalcCore(hdr As Object, fl As Variant, vDates As Variant, vVals As V
     If UCase(CStr(hdr("INDEXADOR"))) = "CDI" Then
         Dim cf As Variant
         If Not ObtemCfCdi(hdr, cdi, dCalc, cf) Then ehErro = True: Exit Sub
-        Dim y0 As Double: y0 = Val(CStr(hdr("TAXA_REF")))
+        Dim y0 As Double: y0 = ParseNum(CStr(hdr("TAXA_REF")))
         Dim pvc() As Double: PvCdi cf, y0, taxa, pvc
         For i = 1 To UBound(cf, 1)
             pu = pu + pvc(i)
@@ -859,7 +878,7 @@ Private Sub DurPU(ticker As String, taxa As Double, d As Date, _
 
     Dim somaPV As Double, somaTPV As Double, i As Long, t As Double, du As Long, pvi As Double
     If UCase(CStr(hdr("INDEXADOR"))) = "CDI" Then
-        Dim y0 As Double: y0 = Val(CStr(hdr("TAXA_REF")))
+        Dim y0 As Double: y0 = ParseNum(CStr(hdr("TAXA_REF")))
         Dim cf As Variant
         If Not ObtemCfCdi(hdr, cdi, d, cf) Then ehErro = True: Exit Sub
         Dim pvc() As Double: PvCdi cf, y0, taxa, pvc
@@ -893,6 +912,7 @@ Erro:
 End Function
 
 Public Function RF_FLUXO(ticker As String, taxa As Double, dataCalc As Variant) As Variant
+    ' Retorna tabela: DATA | EVENTO | DU | VF | PV | %TAI | %AMORT
     On Error GoTo Erro
     Dim hdr As Object, fl As Variant, vd As Variant, vv As Variant, cdi As Object
     Dim d As Date: d = CDate(dataCalc)
@@ -903,14 +923,23 @@ Public Function RF_FLUXO(ticker As String, taxa As Double, dataCalc As Variant) 
         If cdi Is Nothing Then RF_FLUXO = CVErr(xlErrNum): Exit Function
         Dim cf As Variant
         If Not ObtemCfCdi(hdr, cdi, d, cf) Then RF_FLUXO = CVErr(xlErrNum): Exit Function
-        Dim y0 As Double: y0 = Val(CStr(hdr("TAXA_REF")))
+        Dim y0 As Double: y0 = ParseNum(CStr(hdr("TAXA_REF")))
         Dim pvc() As Double: PvCdi cf, y0, taxa, pvc
         Dim nc As Long: nc = UBound(cf, 1)
-        Dim outc() As Variant: ReDim outc(0 To nc, 1 To 5)
-        outc(0, 1) = "DATA": outc(0, 2) = "EVENTO": outc(0, 3) = "DU": outc(0, 4) = "VF": outc(0, 5) = "PV @ " & taxa & "%"
+        Dim outc() As Variant: ReDim outc(0 To nc, 1 To 7)
+        outc(0, 1) = "DATA": outc(0, 2) = "EVENTO": outc(0, 3) = "DU"
+        outc(0, 4) = "VF": outc(0, 5) = "PV @ " & taxa & "%"
+        outc(0, 6) = "%TAI": outc(0, 7) = "%AMORT"
+        Dim vnaCdi As Double: vnaCdi = 1000
+        If hdr.Exists("VNA") Then vnaCdi = ParseNum(CStr(hdr("VNA")))
+        If vnaCdi <= 0 Then vnaCdi = 1000
         For i = 1 To nc
             du = cf(i, 4): vf = cf(i, 2)
-            outc(i, 1) = cf(i, 1): outc(i, 2) = "": outc(i, 3) = du: outc(i, 4) = vf: outc(i, 5) = pvc(i)
+            outc(i, 1) = cf(i, 1): outc(i, 2) = "": outc(i, 3) = du
+            outc(i, 4) = vf: outc(i, 5) = pvc(i)
+            ' % TAI e % AMORT para CDI: estimados pelo VF/VNA (aproximacao; nao ha colunas separadas no CSV legado)
+            If vf > 0 Then outc(i, 6) = Round(vf / vnaCdi * 100, 4) Else outc(i, 6) = 0
+            outc(i, 7) = 0
         Next i
         RF_FLUXO = outc
         Exit Function
@@ -919,15 +948,25 @@ Public Function RF_FLUXO(ticker As String, taxa As Double, dataCalc As Variant) 
     Dim vna As Double: vna = VNAData(vd, vv, d, UCase(CStr(hdr("INDEXADOR"))) = "IPCA")
     If vna <= 0 Then RF_FLUXO = CVErr(xlErrNum): Exit Function
     Dim n As Long: n = UBound(fl, 1)
-    Dim out() As Variant: ReDim out(0 To n, 1 To 5)
-    out(0, 1) = "DATA": out(0, 2) = "EVENTO": out(0, 3) = "DU": out(0, 4) = "VF": out(0, 5) = "PV @ " & taxa & "%"
+    Dim out() As Variant: ReDim out(0 To n, 1 To 7)
+    out(0, 1) = "DATA": out(0, 2) = "EVENTO": out(0, 3) = "DU"
+    out(0, 4) = "VF": out(0, 5) = "PV @ " & taxa & "%"
+    out(0, 6) = "%TAI": out(0, 7) = "%AMORT"
     For i = 1 To n
         du = ContaDU(d, CDate(fl(i, 1)))
         If du <= 0 Then GoTo Prox
         vf = fl(i, 6) * vna
         pvi = fl(i, 6) * vna / (1 + taxa / 100) ^ (du / 252#)
         rr = rr + 1
-        out(rr, 1) = fl(i, 1): out(rr, 2) = fl(i, 2): out(rr, 3) = du: out(rr, 4) = vf: out(rr, 5) = pvi
+        out(rr, 1) = fl(i, 1): out(rr, 2) = fl(i, 2): out(rr, 3) = du
+        out(rr, 4) = vf: out(rr, 5) = pvi
+        ' %TAI e %AMORT sao armazenados em fc_pct (col 6) como soma; aqui separamos pelo tipo de evento
+        Dim evs As String: evs = CStr(fl(i, 2))
+        If InStr(1, evs, "A", vbTextCompare) > 0 And InStr(1, evs, "J", vbTextCompare) = 0 Then
+            out(rr, 6) = 0: out(rr, 7) = fl(i, 6) * 100  ' %AMORT
+        Else
+            out(rr, 6) = fl(i, 6) * 100: out(rr, 7) = 0  ' %TAI
+        End If
 Prox:
     Next i
     RF_FLUXO = out
@@ -1053,7 +1092,7 @@ Public Function RF_SPREAD(ticker As String) As Variant
     If Not PegaAtivo(ticker, hdr, fl, vd, vv, cdi) Then RF_SPREAD = CVErr(xlErrNA): Exit Function
     Dim campo As String
     If UCase(CStr(hdr("INDEXADOR"))) = "CDI" Then campo = "TAXA_REF" Else campo = "TAXA_EMISSAO"
-    If hdr.Exists(campo) Then RF_SPREAD = Val(CStr(hdr(campo))) Else RF_SPREAD = CVErr(xlErrNA)
+    If hdr.Exists(campo) Then RF_SPREAD = ParseNum(CStr(hdr(campo))) Else RF_SPREAD = CVErr(xlErrNA)
     Exit Function
 Erro:
     RF_SPREAD = CVErr(xlErrValue)
@@ -1349,6 +1388,33 @@ Public Function RF_LISTAR() As Variant
     RF_LISTAR = out
 End Function
 
+' ================= GROSS-UP =================
+' Taxa com gross-up tributario (taxedM2MRate da FI Analytics).
+' Para titulos corporativos, considera IR 15% sobre o rendimento.
+' Formula (aproximacao ANBIMA):
+'   taxed_rate = ((1 + rate/100)^(1 - aliquota) - 1) * 100
+' Onde aliquota padrao = 0.15 (15% IR).
+' Se houver META GROSSUP_RATE no CSV, usa o valor exato da FI Analytics.
+Public Function RF_GROSSUP(ticker As String, pu As Double, dataCalc As Variant, _
+                           Optional aliquota As Double = 0.15) As Variant
+    On Error GoTo Erro
+    Dim hdr As Object, fl As Variant, vd As Variant, vv As Variant, cdi As Object
+    If Not PegaAtivo(ticker, hdr, fl, vd, vv, cdi) Then RF_GROSSUP = CVErr(xlErrNA): Exit Function
+    ' Se tem TAXED_RATE no CSV (FI Analytics), usa o valor exato
+    If hdr.Exists("TAXED_RATE") Then
+        RF_GROSSUP = ParseNum(CStr(hdr("TAXED_RATE")))
+        Exit Function
+    End If
+    ' Senao, calcula a taxa e aplica gross-up
+    Dim y As Variant: y = RF_TAXA(ticker, pu, dataCalc)
+    If IsError(y) Then RF_GROSSUP = y: Exit Function
+    Dim r As Double: r = CDbl(y) / 100
+    RF_GROSSUP = ((1 + r) ^ (1 - aliquota) - 1) * 100
+    Exit Function
+Erro:
+    RF_GROSSUP = CVErr(xlErrValue)
+End Function
+
 ' ================= BREAKEVEN / SWAP / YTC / YTW =================
 '
 ' Cadeia de equivalencia de indexadores (via equacao de Fisher e curva DI):
@@ -1569,7 +1635,7 @@ Public Function RF_YTW(ticker As String, pu As Double, dataCalc As Variant) As V
         If dc <= d Then GoTo ProxCall  ' call ja vencido
         prem = 0
         If callPremStr <> "" Then
-            If i <= UBound(callPrems) Then prem = Val(Trim(callPrems(i)))
+            If i <= UBound(callPrems) Then prem = ParseNum(Trim(callPrems(i)))
         End If
         vnaCall = VNAData(vd, vv, dc, UCase(CStr(hdr("INDEXADOR"))) = "IPCA")
         cp = IIf(vnaCall > 0, vnaCall * (1 + prem / 100), 0)
@@ -1605,13 +1671,17 @@ Private Sub RegistrarFuncoes()
         Description:="VNA na data (exato nas datas importadas; interpola).", _
         ArgumentDescriptions:=Array("Ticker", "Data de calculo")
     Application.MacroOptions Macro:="RF_FLUXO", Category:=CAT, _
-        Description:="Tabela do fluxo descontado (Data|Evento|DU|VF|PV).", _
+        Description:="Tabela do fluxo descontado (Data|Evento|DU|VF|PV|%TAI|%AMORT). Inclui % da Tai por evento.", _
         ArgumentDescriptions:=Array("Ticker", "Taxa em % a.a.", "Data de calculo")
     Application.MacroOptions Macro:="RF_INFO", Category:=CAT, _
-        Description:="Info do cabecalho (EMISSOR, VENCIMENTO...) ou ""VNA_DATAS"".", _
+        Description:="Info do cabecalho (EMISSOR, VENCIMENTO...) ou ""DATAS"".", _
         ArgumentDescriptions:=Array("Ticker", "Campo")
     Application.MacroOptions Macro:="RF_LISTAR", Category:=CAT, _
         Description:="Lista os ativos disponiveis na pasta de fluxos."
+    ' Gross-up
+    Application.MacroOptions Macro:="RF_GROSSUP", Category:=CAT, _
+        Description:="Taxa com gross-up tributario (taxedM2MRate). Aliquota padrao IR=15%.", _
+        ArgumentDescriptions:=Array("Ticker", "PU de mercado", "Data de calculo", "Aliquota IR (default=0,15)")
     ' Breakeven / Swap / YTC / YTW
     Application.MacroOptions Macro:="RF_INFLA_IMPLICITA", Category:=CAT, _
         Description:="Inflacao implicita (Fisher) que iguala retorno PRE ao IPCA+. Retorna % a.a.", _

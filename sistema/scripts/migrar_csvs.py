@@ -15,7 +15,7 @@ ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 from src.paths import fluxos_dir
 
-SEP = "\t"
+SEP = ";"
 
 
 def _eh_legado(linhas: list[str]) -> bool:

@@ -7,6 +7,23 @@ Para buscar as últimas entradas: `grep "^## \[" log.md | tail -10`
 
 ---
 
+## [2026-06-15] atualização | Refatoração v3: FI Analytics como fonte primária
+
+- FI Analytics como fonte PRIMÁRIA de fluxos (substitui B3): juros incorporados, gross-up, DI equivalente
+- VNA calculado LOCALMENTE (IPCA via BACEN série 433, CDI via BACEN série 12) — sem dependência da B3
+- Novo motor de sincronização: sync_engine.py (FI Analytics → CSV + SQLite)
+- Cliente FI Analytics: fi_client.py (corporate, gov bonds, bondbuilder, user bonds)
+- Scraper ANBIMA Data: anbima_scraper.py (características, ratings, amortizações)
+- Cálculo local de DI Futuro: di_futuro.py (todos os contratos DI1F*)
+- Novo formato CSV com %TAI e %AMORT separados por evento
+- Add-in VBA atualizado: RF_FLUXO com 7 colunas (DATA|EVENTO|DU|VF|PV|%TAI|%AMORT), RF_GROSSUP
+- Sistema de tokens seguro: config/tokens.txt (gitignored) + config/tokens_template.txt (GitHub)
+- Scripts .bat na pasta sistema/bat/ (1_sincronizar, 2_rapido, 3_instalar, 4_validar)
+- Documentação completa: DOCUMENTACAO_FORMULAS.md com todas as fórmulas, exemplos reais e outputs
+- Wiki atualizada: projeto-addin-fluxos.md reflete arquitetura v3
+- Script rotina_diaria_v2.py com pipeline completo: BACEN → FI Analytics → ANBIMA → Add-in
+- .gitignore reforçado para proteger tokens e dados de mercado
+
 ## [2026-06-12] criação | Wiki inicializada
 
 - Estrutura criada: `raw/`, `wiki/`, `CLAUDE.md`, `index.md`, `log.md`

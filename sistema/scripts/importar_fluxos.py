@@ -8,10 +8,10 @@ Uso:
   python importar_fluxos.py EGIEA6 2026-06-11  -> importa com data especifica
   python importar_fluxos.py --feriados         -> (re)gera fluxos/_feriados.csv
 
-Formato do CSV (separador = TAB, decimal = ponto):
-  META<tab>CHAVE<tab>VALOR          (cabecalho: TICKER, INDEXADOR, EMISSOR, ...)
-  FLUXO<tab>data<tab>evento<tab>vf<tab>pv<tab>du<tab>fc_pct
-  VNA<tab>data<tab>vna             (1 ponto por data importada, acumula)
+Formato do CSV (separador = ;, decimal = virgula — padrao brasileiro):
+  META;CHAVE;VALOR          (cabecalho: TICKER, INDEXADOR, EMISSOR, ...)
+  FLUXO;data;evento;vf;pv;du;fc_pct
+  VNA;data;vna             (1 ponto por data importada, acumula)
 
 Modelo de calculo (ver wiki projeto-addin-fluxos):
   IPCA/PRE: PU(data,taxa) = [Sum FC% / (1+taxa/100)^(du/252)] * VNA(data)
@@ -27,8 +27,8 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 from src.paths import fluxos_dir
+from src.fmt_br import SEP, fmt, fmt_pct, csv_row, csv_header, csv_write
 FLUXOS_DIR = fluxos_dir()
-SEP = "\t"
 
 
 # â”€â”€ Feriados nacionais (ANBIMA) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
@@ -144,30 +144,30 @@ def importar_ticker(ticker: str, data_calc: str | None = None) -> str:
         blocos = _ler_blocos_cdi(path)
         bloco = []
         for f in flows:
-            bloco.append(SEP.join([
+            bloco.append(csv_row(
                 "CDI", dc, _iso(f["date"]),
-                f"{float(f['finalValue']):.6f}", f"{float(f['presentValue']):.6f}",
-                str(int(f["workingDays"])),
-            ]))
+                float(f["finalValue"]), float(f["presentValue"]),
+                int(f["workingDays"]),
+            ))
         blocos[dc] = bloco
         out = [
-            SEP.join(["ticker", ticker]),
-            SEP.join(["tipo", tipo]),
-            SEP.join(["indexador", indexador]),
-            SEP.join(["emissor", emissor]),
-            SEP.join(["method", method_calc]),
-            SEP.join(["inicio_rentabilidade", _iso(det.get("startingdate"))]),
-            SEP.join(["vencimento", _iso(det.get("expiredate"))]),
-            SEP.join(["vne", str(det.get("vne") or "")]),
-            SEP.join(["taxa_emissao", str(taxa_ref)]),
-            SEP.join(["taxa_ref", str(taxa_ref)]),
-            SEP.join(["data_fluxo", dc]),
-            SEP.join(["fonte", "B3"]),
+            csv_row("ticker", ticker),
+            csv_row("tipo", tipo),
+            csv_row("indexador", indexador),
+            csv_row("emissor", emissor),
+            csv_row("method", method_calc),
+            csv_row("inicio_rentabilidade", _iso(det.get("startingdate"))),
+            csv_row("vencimento", _iso(det.get("expiredate"))),
+            csv_row("vne", float(det.get("vne") or 0)),
+            csv_row("taxa_emissao", taxa_ref),
+            csv_row("taxa_ref", taxa_ref),
+            csv_row("data_fluxo", dc),
+            csv_row("fonte", "B3"),
             "",
         ]
         for d in sorted(blocos):
             out.extend(blocos[d])
-        path.write_text("\n".join(out), encoding="utf-8")
+        csv_write(path, out)
         return f"OK {ticker}: {len(flows)} fluxos CDI, datas={len(blocos)}, {indexador}"
 
     # IPCA/PRE: FC% data-independente; separa J e A em colunas distintas
@@ -184,27 +184,27 @@ def importar_ticker(ticker: str, data_calc: str | None = None) -> str:
             grupos[d]["juros"] += vf_f  # outros eventos tratados como juros
 
     out = [
-        SEP.join(["ticker", ticker]),
-        SEP.join(["tipo", tipo]),
-        SEP.join(["indexador", indexador]),
-        SEP.join(["emissor", emissor]),
-        SEP.join(["method", method_calc]),
-        SEP.join(["inicio_rentabilidade", _iso(det.get("startingdate"))]),
-        SEP.join(["vencimento", _iso(det.get("expiredate"))]),
-        SEP.join(["vne", str(det.get("vne") or "")]),
-        SEP.join(["taxa_emissao", str(taxa_ref)]),
-        SEP.join(["taxa_ref", str(taxa_ref)]),
-        SEP.join(["data_fluxo", dc]),
-        SEP.join(["vna", f"{vna:.6f}"]),
-        SEP.join(["fonte", "B3"]),
+        csv_row("ticker", ticker),
+        csv_row("tipo", tipo),
+        csv_row("indexador", indexador),
+        csv_row("emissor", emissor),
+        csv_row("method", method_calc),
+        csv_row("inicio_rentabilidade", _iso(det.get("startingdate"))),
+        csv_row("vencimento", _iso(det.get("expiredate"))),
+        csv_row("vne", float(det.get("vne") or 0)),
+        csv_row("taxa_emissao", taxa_ref),
+        csv_row("taxa_ref", taxa_ref),
+        csv_row("data_fluxo", dc),
+        csv_row("vna", vna),
+        csv_row("fonte", "B3"),
         "",
-        SEP.join(["DATA", "JUROS_TAI", "AMORT_TAI"]),
+        csv_header("DATA", "JUROS_TAI", "AMORT_TAI"),
     ]
     for d in sorted(grupos):
         g = grupos[d]
         juros_pct = g["juros"] / vna
         amort_pct = g["amort"] / vna
-        out.append(SEP.join([d, f"{juros_pct:.10f}", f"{amort_pct:.10f}"]))
+        out.append(csv_row(d, juros_pct, amort_pct))
 
     # IPCA amortizante: cronograma de amortizacao (% de VNE, soma=100%)
     if indexador == "IPCA":
@@ -216,9 +216,9 @@ def importar_ticker(ticker: str, data_calc: str | None = None) -> str:
         if amort_evs:
             out.append("")
             for d_iso, pct in amort_evs:
-                out.append(SEP.join(["AMORT", d_iso, f"{pct:.8f}"]))
+                out.append(csv_row("AMORT", d_iso, pct))
 
-    path.write_text("\n".join(out), encoding="utf-8")
+    csv_write(path, out)
     return f"OK {ticker}: {len(grupos)} datas, VNA({dc})={vna:.4f}, {indexador}"
 
 

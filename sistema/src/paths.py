@@ -1,41 +1,61 @@
 """
-Fonte unica do caminho onde ficam os CSV de fluxo dos ativos.
+Fonte única do caminho onde ficam os CSV de fluxo dos ativos.
 
-Cada usuario pode apontar para a SUA pasta (local ou na nuvem) sem editar codigo:
-basta definir "fluxos_dir" no config.json. Exemplos:
-    "fluxos_dir": ""                                  -> padrao: <projeto>/data/fluxos
-    "fluxos_dir": "C:/Users/voce/OneDrive/RF/fluxos"  -> pasta na nuvem
-    "fluxos_dir": "~/Dropbox/rf_fluxos"               -> ~ expande p/ home
+Cada usuário pode apontar para a SUA pasta (local ou na nuvem) sem editar código:
+basta definir REDE_FLUXOS_DIR no config/tokens.txt.
 
-FONTE UNICA: defina a pasta UMA vez em config.json -> "fluxos_dir". Vale para os
-scripts Python (ler/gravar) E para o add-in Excel — o setup/build propaga esse
-caminho para onde o add-in le (rf_fluxos.txt), via aplicar_no_addin().
+Precedência:
+  1. Variável de ambiente RF_FLUXOS_DIR
+  2. config/tokens.txt → REDE_FLUXOS_DIR
+  3. Padrão local: sistema/data/fluxos/
+
+FONTE ÚNICA: defina a pasta UMA vez. Vale para os scripts Python (ler/gravar)
+E para o add-in Excel — o setup/build propaga esse caminho para onde o add-in lê.
 """
-import json
 import os
 from pathlib import Path
 
 BASE_DIR = Path(__file__).resolve().parent.parent     # .../sistema
-CONFIG_PATH = BASE_DIR / "config.json"
 PADRAO = BASE_DIR / "data" / "fluxos"
 ADDIN_CFG = Path(os.environ.get("APPDATA", "")) / "Microsoft" / "AddIns" / "rf_fluxos.txt"
 DIST_CFG = BASE_DIR / "dist" / "rf_fluxos_dir.txt"
 
 
-def caminho_configurado() -> str | None:
-    """Valor bruto de fluxos_dir no config.json (None se vazio = usa o padrao local)."""
-    if CONFIG_PATH.exists():
+def _config_path() -> str | None:
+    """Lê o caminho da rede do tokens.txt (nova config) ou config.json (legado)."""
+    # 1. Variável de ambiente (prioridade máxima)
+    env = os.environ.get("RF_FLUXOS_DIR", "").strip()
+    if env:
+        return env
+
+    # 2. tokens.txt (nova config)
+    tokens_path = BASE_DIR / "config" / "tokens.txt"
+    if tokens_path.exists():
+        for line in tokens_path.read_text(encoding="utf-8").splitlines():
+            line = line.strip()
+            if line.startswith("REDE_FLUXOS_DIR="):
+                val = line.split("=", 1)[1].strip()
+                if val:
+                    return val
+
+    # 3. config.json (legado)
+    import json
+    cfg_path = BASE_DIR / "config.json"
+    if cfg_path.exists():
         try:
-            cfg = json.loads(CONFIG_PATH.read_text(encoding="utf-8"))
-            return (cfg.get("fluxos_dir") or "").strip() or None
+            cfg = json.loads(cfg_path.read_text(encoding="utf-8"))
+            val = (cfg.get("fluxos_dir") or "").strip()
+            if val:
+                return val
         except Exception:
-            return None
+            pass
+
     return None
 
 
 def fluxos_dir(criar: bool = True) -> Path:
-    """Pasta dos fluxos AUTOMATICOS (B3). Config 'fluxos_dir' ou padrao data/fluxos."""
-    destino = caminho_configurado()
+    """Pasta dos fluxos AUTOMÁTICOS (FI Analytics + B3)."""
+    destino = _config_path()
     if destino:
         p = Path(destino).expanduser()
         if not p.is_absolute():
@@ -48,7 +68,7 @@ def fluxos_dir(criar: bool = True) -> Path:
 
 
 def fluxos_manual_dir(criar: bool = True) -> Path:
-    """Pasta dos ativos inseridos MANUALMENTE (irma da de fluxos: <pai>/fluxos_manual)."""
+    """Pasta dos ativos inseridos MANUALMENTE."""
     p = fluxos_dir(criar=False).parent / "fluxos_manual"
     if criar:
         p.mkdir(parents=True, exist_ok=True)
@@ -56,7 +76,7 @@ def fluxos_manual_dir(criar: bool = True) -> Path:
 
 
 def fluxos_antigo_dir(criar: bool = True) -> Path:
-    """Pasta dos manuais SUPERADOS por atualizacao da B3 (<pai>/fluxos_antigo)."""
+    """Pasta dos CSVs superados por atualização."""
     p = fluxos_dir(criar=False).parent / "fluxos_antigo"
     if criar:
         p.mkdir(parents=True, exist_ok=True)
@@ -64,12 +84,7 @@ def fluxos_antigo_dir(criar: bool = True) -> Path:
 
 
 def aplicar_no_addin(propagar_dist: bool = True) -> dict:
-    """Propaga o caminho de fluxos (config.json) para onde o ADD-IN le, para que
-    scripts e add-in usem SEMPRE a mesma pasta:
-      - %APPDATA%\\Microsoft\\AddIns\\rf_fluxos.txt   (o add-in DESTA maquina)
-      - sistema/dist/rf_fluxos_dir.txt                (default p/ os colegas) —
-        so se for um caminho EXPLICITO no config.json (compartilhado), nunca o
-        padrao local. Retorna dict com o que foi escrito."""
+    """Propaga o caminho de fluxos para onde o ADD-IN lê."""
     p = str(fluxos_dir(criar=False))
     res = {}
     try:
@@ -78,12 +93,12 @@ def aplicar_no_addin(propagar_dist: bool = True) -> dict:
             res["addin"] = str(ADDIN_CFG)
     except Exception as e:
         res["addin_erro"] = str(e)
-    if propagar_dist and caminho_configurado():
+    if propagar_dist and _config_path():
         try:
             DIST_CFG.parent.mkdir(parents=True, exist_ok=True)
             DIST_CFG.write_text(
-                "# Caminho oficial da pasta de fluxos (gerado de config.json -> fluxos_dir).\n"
-                "# Os colegas so rodam o instalar.py; ele usa a linha abaixo.\n"
+                "# Caminho oficial da pasta de fluxos (gerado de config/tokens.txt).\n"
+                "# Os colegas só rodam o instalar.py; ele usa a linha abaixo.\n"
                 + p + "\n", encoding="utf-8")
             res["dist"] = str(DIST_CFG)
         except Exception as e:

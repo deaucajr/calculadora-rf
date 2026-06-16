@@ -1,5 +1,12 @@
-# Dependencias do fluxo principal
-requests>=2.28        # chamadas a API CALC/B3 e BACEN
-pywin32>=305          # gerar o .xlam via COM (build_xlam.py) e testes via Excel
+# Dependencias principais — FI Analytics + BACEN + ANBIMA
+requests>=2.28        # chamadas HTTP (FI Analytics, BACEN, B3, ANBIMA)
+pywin32>=305          # gerar .xlam via COM (build_xlam.py)
+python-dateutil>=2.8  # relativedelta (VNA)
+scipy>=1.10           # brentq (root-finding p/ yield implicito)
 
-# Opcionais (scripts em _legado/): openpyxl, scipy, python-dateutil
+# Processamento de dados
+pandas>=1.5           # CSV/Excel/planilhas swap
+openpyxl>=3.0         # Excel (gerar_planilha_swap.py, importar_planilha.py)
+
+# Opcionais
+# beautifulsoup4>=4.12  # HTML parsing (ANBIMA scraper — fallback via regex)

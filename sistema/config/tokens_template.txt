@@ -1,0 +1,23 @@
+# ============================================================
+# TEMPLATE DE TOKENS E SENHAS — PREENCHA E RENOMEIE PARA tokens.txt
+# ============================================================
+# Este arquivo vai para o GitHub com valores genéricos.
+# Copie para tokens.txt (que é gitignored) e preencha com os valores reais.
+# NUNCA comite tokens.txt no GitHub.
+# ============================================================
+
+# ── FI Analytics ─────────────────────────────────────────────
+FI_API_KEY=SUA_API_KEY_AQUI
+FI_USER_EMAIL=seu.email@dominio.com
+FI_USER_PASSWORD=sua_senha_aqui
+
+# ── B3 Calculadora ───────────────────────────────────────────
+B3_TOKEN=seu_token_b3_aqui
+
+# ── ANBIMA Data (opcional — scraping público) ────────────────
+ANBIMA_USER=seu.email@anbima.com
+ANBIMA_PASSWORD=sua_senha_anbima
+
+# ── Caminho da pasta de rede (para colegas do banco) ─────────
+# Deixe vazio para usar o padrão local (sistema/data/fluxos/)
+REDE_FLUXOS_DIR=

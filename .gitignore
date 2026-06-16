@@ -15,3 +15,32 @@ Desktop.ini
 # Temporários
 *.tmp
 *~
+
+# Tokens e senhas (NUNCA versionar)
+sistema/config/tokens.txt
+sistema/config/secrets.json
+.env
+*.env
+
+# Dados de mercado (regeneráveis via scripts)
+sistema/data/fluxos/*.csv
+sistema/data/fluxos_manual/
+sistema/data/fluxos_antigo/
+sistema/data/rf.db
+sistema/data/*.log
+sistema/data/*.json
+!sistema/data/universo.json
+!sistema/data/_assinaturas.json
+!sistema/data/_ntnb_ref.json
+
+# Distribuição (gerados pelo build)
+sistema/dist/RF_Calc.xlam
+sistema/dist/RF_Calc_INSTALAR.zip
+RF_Calc_PORTABLE.zip
+RF_Calc_TRANSFER.zip
+*.zip
+
+# Python
+__pycache__/
+*.pyc
+*.pyo

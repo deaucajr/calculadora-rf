@@ -1,15 +1,15 @@
 ---
-atualizado: 2026-06-14
+atualizado: 2026-06-15
 ---
 
 # Índice da Wiki
 
-Este arquivo é o catálogo central de todas as páginas em `wiki/`. O LLM lê este arquivo primeiro ao responder consultas para identificar páginas relevantes.
+Catálogo central de todas as páginas em `wiki/`.
 
 ---
 
 ## Projetos
-- [[projeto-addin-fluxos]] — Add-in Excel de renda fixa v2: pasta de fluxos, importador B3, funções DEB_* com data (projeto)
+- [[projeto-addin-fluxos]] — Add-in Excel de renda fixa v3: FI Analytics como fonte primária, VNA local, NTN-B/DI unificados, % Tai por fluxo, gross-up (projeto)
 
 ## Clientes
 *(nenhum ainda)*
@@ -37,4 +37,4 @@ Este arquivo é o catálogo central de todas as páginas em `wiki/`. O LLM lê e
 
 ---
 
-*Última atualização: 2026-06-14 — Adicionado tema-curva-di-historica; atualizado projeto-addin-fluxos com VNA amortizante e fontes históricas.*
+*Última atualização: 2026-06-15 — Projeto migrado para FI Analytics como fonte primária; VNA calculado localmente; NTN-B e DI Futuro unificados no add-in; documentação completa de fórmulas.*

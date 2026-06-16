@@ -1,32 +1,44 @@
-# RF_Calc — Calculadora de Renda Fixa (Excel Add-in)
+# RF_Calc — Calculadora de Renda Fixa (Excel Add-in) v3
 
-Add-in Excel para precificação offline de debentures, CRIs e CRAs brasileiros, sem depender de API a cada consulta. Suporta IPCA+, PRÉ, CDI+ e %CDI.
+Add-in Excel para precificação offline de QUALQUER ativo de renda fixa brasileiro:
+debentures, CRIs, CRAs, NTN-B, NTN-F e DI Futuro.
+
+**Fonte primária: FI Analytics** (juros incorporados, gross-up, DI equivalente).
+**VNA: cálculo 100% local** (IPCA via BACEN, CDI via BACEN série 12).
 
 ---
 
 ## O que faz
 
-- **Precifica qualquer título** de renda fixa com funções diretas em células Excel (`=RF_PU(...)`, `=RF_TAXA(...)`, etc.)
-- **Dados locais**: importa os fluxos de caixa da B3 uma vez e calcula offline para qualquer taxa e data
-- **Escala**: suporta 3.000+ ativos simultaneamente com carregamento lazy (lê só o que precisa)
-- **Exatidão**: erro < 0,01 R$ vs. API B3 para todos os tipos de indexador
+- **Precifica qualquer título** com funções diretas em células Excel (`=RF_PU(...)`, `=RF_TAXA(...)`, etc.)
+- **Dados locais**: importa fluxos do FI Analytics e calcula offline para qualquer taxa e data
+- **VNA local**: calcula VNA de IPCA e CDI sem depender de API externa
+- **Juros incorporados**: FI Analytics considera accrued interest (B3 não considera)
+- **% Tai por evento**: `RF_FLUXO` mostra % da Tai e % Amortização de cada fluxo
+- **Gross-up**: taxa com ajuste tributário (taxedM2MRate)
+- **Escala**: suporta 3.000+ ativos com carregamento lazy
+- **Exatidão**: erro < 0,01 R$ vs. API para todos os tipos de indexador
 
 ---
 
 ## Funções Excel disponíveis
 
+### Precificação (funciona para qualquer ticker: debênture, NTN-B, DI Futuro)
+
 | Função | O que retorna |
 |--------|--------------|
-| `=RF_PU("EGIEA6", 6.5, "2026-06-14")` | Preço unitário em R$ |
-| `=RF_TAXA("EGIEA6", 1447.32, "2026-06-14")` | Taxa implícita (YTM) em % a.a. |
-| `=RF_DURATION("EGIEA6", 6.5, "2026-06-14")` | Duration de Macaulay em anos |
-| `=RF_DV01("EGIEA6", 6.5, "2026-06-14")` | Sensibilidade a 1bp em R$ |
-| `=RF_VNA("EGIEA6", "2026-06-14")` | Valor Nominal Atualizado em R$ |
-| `=RF_FLUXO("EGIEA6", 6.5, "2026-06-14")` | Tabela completa de fluxos (array) |
-| `=RF_INFO("EGIEA6", "EMISSOR")` | Metadado do ativo (emissor, vencimento, etc.) |
+| `=RF_PU("EGIEA6"; 6,5; "2026-06-14")` | PU para debênture IPCA+ |
+| `=RF_PU("NTN-B 30"; 6,5; "2026-06-14")` | PU para NTN-B 2030 |
+| `=RF_PU("DI1F30"; 14,4; "2026-06-14")` | PU para DI Futuro Jan/2030 |
+| `=RF_TAXA("EGIEA6"; 1447,32; "2026-06-14")` | Taxa implícita (YTM) em % a.a. |
+| `=RF_DURATION("EGIEA6"; 6,5; "2026-06-14")` | Duration de Macaulay em anos |
+| `=RF_DV01("EGIEA6"; 6,5; "2026-06-14")` | Sensibilidade a 1bp em R$ |
+| `=RF_CONVEXIDADE("EGIEA6"; 6,5; "2026-06-14")` | Convexidade (bump 0,1 p.p.) |
+| `=RF_VNA("EGIEA6"; "2026-06-14")` | Valor Nominal Atualizado em R$ |
+| `=RF_FLUXO("EGIEA6"; 6,5; "2026-06-14")` | Tabela: DATA\|EVENTO\|DU\|VF\|PV\|%TAI\|%AMORT |
+| `=RF_GROSSUP("EGIEA6"; 1447; "2026-06-14")` | Taxa com gross-up tributário |
+| `=RF_INFO("EGIEA6"; "EMISSOR")` | Metadado (EMISSOR, VENCIMENTO, INDEXADOR...) |
 | `=RF_LISTAR()` | Lista todos os tickers disponíveis |
-| `=RF_YTC("EGIEA6", 1447, "2026-06-15", "2028-06-15")` | Yield to Call (taxa na data de call) |
-| `=RF_YTW("EGIEA6", 1447, "2026-06-15")` | Yield to Worst (menor entre YTM e todos os YTCs) |
 
 ### Funções de Swap / Equivalência entre Indexadores
 
@@ -51,28 +63,50 @@ Documentação completa com exemplos e retornos esperados: [`documentacao_RF_Cal
 
 ```
 /
-├── addin/
-│   └── RF_Calc.bas          ← Código-fonte VBA do add-in
 ├── sistema/
+│   ├── addin/
+│   │   └── RF_Calc.bas              ← Código-fonte VBA do add-in (v3)
+│   ├── bat/                         ← Scripts .bat para automação
+│   │   ├── LEIA_ME.txt              ← Guia dos .bat files
+│   │   ├── 1_sincronizar_completo.bat ← Baixa TODOS ativos (1a vez)
+│   │   ├── 2_sincronizar_rapido.bat   ← Rotina diária incremental
+│   │   ├── 3_instalar_addin.bat       ← Instala add-in no Excel
+│   │   └── 4_validar.bat              ← Testa cálculos vs API
+│   ├── config/
+│   │   ├── tokens_template.txt      ← Template para GitHub (valores genéricos)
+│   │   └── tokens.txt               ← SEUS tokens reais (GITIGNORED!)
 │   ├── scripts/
-│   │   ├── importar_fluxos.py          ← Importa 1 ativo da API B3
-│   │   ├── importar_todos.py           ← Importação em massa (3.000+ ativos)
-│   │   ├── rotina_diaria.py            ← Detecta novos + atualiza (agendável)
-│   │   ├── importar_curva_historica.py ← Curva DI histórica via TaxaSwap B3
-│   │   ├── importar_curva_bloomberg.py ← Curva DI via planilha Bloomberg (OD*)
-│   │   ├── gerar_planilha_swap.py      ← Planilha Excel de analise de swap/breakeven
-│   │   ├── gerar_template_ativo.py     ← Gera CADASTRO_ATIVO.xlsx (template de cadastro)
-│   │   ├── importar_planilha.py        ← Converte o Excel preenchido em CSV do add-in
-│   │   ├── atualizar_amortpct.py       ← Popula amortizações em ativos IPCA+
-│   │   ├── validar.py                  ← Compara cálculo local vs. API B3
-│   │   └── build_xlam.py               ← Gera RF_Calc.xlam via COM
+│   │   ├── rotina_diaria_v2.py      ← Rotina diária (FI Analytics + BACEN + ANBIMA)
+│   │   ├── importar_fluxos.py       ← Importa 1 ticker (B3 — legado)
+│   │   ├── importar_todos.py        ← Importação em massa (B3 — legado)
+│   │   ├── importar_curva_historica.py ← Curva DI histórica (TaxaSwap B3)
+│   │   ├── importar_curva_bloomberg.py ← Curva DI via Bloomberg
+│   │   ├── gerar_planilha_swap.py   ← Planilha Excel de swap/breakeven
+│   │   ├── gerar_template_ativo.py  ← Template Excel de cadastro manual
+│   │   ├── importar_planilha.py     ← Converte Excel → CSV
+│   │   ├── atualizar_amortpct.py    ← Popula amortizações IPCA+
+│   │   ├── validar.py               ← Compara PU local vs. API
+│   │   └── migrar_csvs.py           ← Conversor de formato de CSV
 │   └── src/
-│       ├── sync_b3_curve.py            ← Baixa curva DI recente da B3
-│       ├── api_client.py               ← Cliente da API B3
-│       └── paths.py                    ← Configuração de caminhos
-├── wiki/                    ← Base de conhecimento do projeto
-├── documentacao_RF_Calc.txt ← Referência completa das funções
-└── README.md
+│       ├── __init__.py              ← Pacote Python
+│       ├── config.py                ← Carregador de tokens (lê tokens.txt)
+│       ├── db.py                    ← SQLite (rf.db)
+│       ├── paths.py                 ← Resolve pasta de fluxos
+│       ├── fi_client.py             ← Cliente FI Analytics (fonte PRIMÁRIA)
+│       ├── sync_engine.py           ← Motor de sincronização principal
+│       ├── sync_bacen.py            ← BACEN: CDI, IPCA, projeções ANBIMA
+│       ├── sync_flows.py            ← B3 sync (legado)
+│       ├── vna_calc.py              ← Cálculo LOCAL de VNA
+│       ├── vna.py                   ← VNA legado
+│       ├── calc.py                  ← Motor de cálculo local
+│       ├── di_futuro.py             ← Cálculo local de DI Futuro
+│       └── anbima_scraper.py        ← Scraper ANBIMA Data
+├── wiki/                            ← Base de conhecimento
+├── DOCUMENTACAO_FORMULAS.md         ← Guia completo de fórmulas com exemplos
+├── INSTALAR.md                      ← Guia de instalação para colegas
+├── INSTALAR_BANCO.md                ← Guia específico PC do banco
+├── README.md                        ← Este arquivo
+└── CLAUDE.md                        ← Configuração para LLMs
 ```
 
 ---
