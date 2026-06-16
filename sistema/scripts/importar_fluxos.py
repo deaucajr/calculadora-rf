@@ -87,32 +87,27 @@ def _iso(s):
         return ""
 
 
-def _ler_vna_csv(path: Path) -> dict:
-    """Le pontos VNA de um CSV existente -> {data_iso: vna}."""
-    pts = {}
-    if not path.exists():
-        return pts
-    for ln in path.read_text(encoding="utf-8").splitlines():
-        p = ln.split(SEP)
-        if p and p[0] == "VNA" and len(p) >= 3:
-            pts[p[1]] = float(p[2])
-    return pts
-
-
-def _ler_fluxod_csv(path: Path) -> dict:
-    """Le blocos FLUXOD (CDI multi-data) -> {data_calc: [linhas-FLUXOD]}."""
+def _ler_blocos_cdi(path: Path) -> dict:
+    """Le blocos CDI acumulados -> {data_calc: [linhas]}.
+    Suporta formato novo (CDI ...) e legado (FLUXOD ...)."""
     blocos = {}
     if not path.exists():
         return blocos
     for ln in path.read_text(encoding="utf-8").splitlines():
         p = ln.split(SEP)
-        if p and p[0] == "FLUXOD" and len(p) >= 7:
+        if not p:
+            continue
+        if p[0] == "CDI" and len(p) >= 6:           # novo formato
             blocos.setdefault(p[1], []).append(ln)
+        elif p[0] == "FLUXOD" and len(p) >= 7:      # legado — converte
+            new_ln = SEP.join(["CDI", p[1], p[2], p[4], p[5], p[6]])
+            blocos.setdefault(p[1], []).append(new_ln)
     return blocos
 
 
 def importar_ticker(ticker: str, data_calc: str | None = None) -> str:
-    """Busca o ativo na B3 e grava/atualiza fluxos/<TICKER>.csv. Acumula ponto de VNA."""
+    """Busca o ativo na B3 e grava/atualiza fluxos/<TICKER>.csv."""
+    from collections import defaultdict
     from src.api_client import get_bond_details, calc_pu_api
 
     ticker = ticker.upper().strip()
@@ -141,60 +136,86 @@ def importar_ticker(ticker: str, data_calc: str | None = None) -> str:
     # pode divergir (ex: VNA corrige por IPCA mas precifica como DI-SPREAD).
     method_calc = r.get("method") or det.get("method") or ""
     indexador = _indexador(method_calc)
-
     dc = _iso(data_calc)
-    meta = [
-        ("TICKER", ticker), ("TIPO", tipo), ("INDEXADOR", indexador),
-        ("EMISSOR", (det.get("issuer") or "").replace(SEP, " ")),
-        ("METHOD", method_calc),
-        ("INICIO_RENT", _iso(det.get("startingdate"))),
-        ("VENCIMENTO", _iso(det.get("expiredate"))),
-        ("VNE", det.get("vne") or ""), ("TAXA_EMISSAO", taxa_ref),
-        ("TAXA_REF", taxa_ref), ("DATA_FLUXO", dc),
-        ("FONTE", "B3"),
-    ]
-    out = [SEP.join(["META", k, str(v)]) for k, v in meta]
+    emissor = (det.get("issuer") or "").replace(SEP, " ")
 
     if indexador == "CDI":
-        # CDI/%CDI: fluxos dependem da data -> acumula 1 bloco FLUXOD por data_calc.
-        blocos = _ler_fluxod_csv(path)
+        # CDI/%CDI: fluxos dependem da data -> acumula 1 bloco CDI por data_calc.
+        blocos = _ler_blocos_cdi(path)
         bloco = []
         for f in flows:
             bloco.append(SEP.join([
-                "FLUXOD", dc, _iso(f["date"]), str(f["eventType"]),
+                "CDI", dc, _iso(f["date"]),
                 f"{float(f['finalValue']):.6f}", f"{float(f['presentValue']):.6f}",
                 str(int(f["workingDays"])),
             ]))
         blocos[dc] = bloco
+        out = [
+            SEP.join(["ticker", ticker]),
+            SEP.join(["tipo", tipo]),
+            SEP.join(["indexador", indexador]),
+            SEP.join(["emissor", emissor]),
+            SEP.join(["method", method_calc]),
+            SEP.join(["inicio_rentabilidade", _iso(det.get("startingdate"))]),
+            SEP.join(["vencimento", _iso(det.get("expiredate"))]),
+            SEP.join(["vne", str(det.get("vne") or "")]),
+            SEP.join(["taxa_emissao", str(taxa_ref)]),
+            SEP.join(["taxa_ref", str(taxa_ref)]),
+            SEP.join(["data_fluxo", dc]),
+            SEP.join(["fonte", "B3"]),
+            "",
+        ]
         for d in sorted(blocos):
             out.extend(blocos[d])
         path.write_text("\n".join(out), encoding="utf-8")
         return f"OK {ticker}: {len(flows)} fluxos CDI, datas={len(blocos)}, {indexador}"
 
-    # IPCA/PRE: FC% data-independente + VNA(data) acumulado
-    vna_pts = _ler_vna_csv(path)
-    vna_pts[dc] = vna
+    # IPCA/PRE: FC% data-independente; combina J+A na mesma data
+    grupos: dict[str, dict] = defaultdict(lambda: {"vf": 0.0, "tipos": set(), "du": 0})
     for f in flows:
-        vf = float(f["finalValue"])
-        out.append(SEP.join([
-            "FLUXO", _iso(f["date"]), str(f["eventType"]),
-            f"{vf:.6f}", f"{float(f['presentValue']):.6f}",
-            str(int(f["workingDays"])), f"{vf / vna:.10f}",
-        ]))
-    for dstr in sorted(vna_pts):
-        out.append(SEP.join(["VNA", dstr, f"{vna_pts[dstr]:.6f}"]))
-    # IPCA amortizante: salva cronograma de amortizacao (% de VNE, soma=100%)
-    # para correcao exata de VNA em datas passadas/futuras fora dos pontos gravados.
+        d = _iso(f["date"])
+        grupos[d]["vf"] += float(f["finalValue"])
+        grupos[d]["du"] = int(f["workingDays"])
+        grupos[d]["tipos"].add(str(f["eventType"]))
+
+    out = [
+        SEP.join(["ticker", ticker]),
+        SEP.join(["tipo", tipo]),
+        SEP.join(["indexador", indexador]),
+        SEP.join(["emissor", emissor]),
+        SEP.join(["method", method_calc]),
+        SEP.join(["inicio_rentabilidade", _iso(det.get("startingdate"))]),
+        SEP.join(["vencimento", _iso(det.get("expiredate"))]),
+        SEP.join(["vne", str(det.get("vne") or "")]),
+        SEP.join(["taxa_emissao", str(taxa_ref)]),
+        SEP.join(["taxa_ref", str(taxa_ref)]),
+        SEP.join(["data_fluxo", dc]),
+        SEP.join(["vna", f"{vna:.6f}"]),
+        SEP.join(["fonte", "B3"]),
+        "",
+        SEP.join(["DATA", "FLUXO_TAI", "TIPO"]),
+    ]
+    for d in sorted(grupos):
+        g = grupos[d]
+        fc_pct = g["vf"] / vna
+        ts = g["tipos"]
+        tipo_str = "J+A" if ("J" in ts and "A" in ts) else ("A" if "A" in ts else "J")
+        out.append(SEP.join([d, f"{fc_pct:.10f}", tipo_str]))
+
+    # IPCA amortizante: cronograma de amortizacao (% de VNE, soma=100%)
     if indexador == "IPCA":
         amort_evs = sorted(
             (e["date"][:10], e["yield"])
             for e in det.get("events", [])
             if e.get("eventType") == "A"
         )
-        for d_iso, pct in amort_evs:
-            out.append(SEP.join(["AMORTPCT", d_iso, f"{pct:.8f}"]))
+        if amort_evs:
+            out.append("")
+            for d_iso, pct in amort_evs:
+                out.append(SEP.join(["AMORT", d_iso, f"{pct:.8f}"]))
+
     path.write_text("\n".join(out), encoding="utf-8")
-    return f"OK {ticker}: {len(flows)} fluxos, VNA({dc})={vna:.4f}, pts_vna={len(vna_pts)}, {indexador}"
+    return f"OK {ticker}: {len(grupos)} datas, VNA({dc})={vna:.4f}, {indexador}"
 
 
 def processar_lista():

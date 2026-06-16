@@ -189,6 +189,7 @@ Private Function CarregarAtivo(ticker As String) As Boolean
         If linha = "" Then GoTo Prox
         p = Split(linha, SEP)
         Select Case p(0)
+            ' ── formato legado (META/FLUXO/VNA/FLUXOD/AMORTPCT) ──────────────────
             Case "META"
                 If UBound(p) >= 2 Then hdr(UCase(Trim(p(1)))) = p(2)
             Case "FLUXO"
@@ -203,16 +204,60 @@ Private Function CarregarAtivo(ticker As String) As Boolean
                     nv = nv + 1
                     vd(nv) = CDbl(ParseISO(p(1))): vv(nv) = Val(p(2))
                 End If
-            Case "FLUXOD"   ' CDI: data_calc, data_evento, evento, vf, pv, du
+            Case "FLUXOD"   ' CDI legado: dc, de, tipo, vf, pv, du
                 If UBound(p) >= 6 Then
                     If Not cdiTmp.Exists(p(1)) Then cdiTmp.Add p(1), New Collection
                     cdiTmp(p(1)).Add Array(ParseISO(p(2)), Val(p(4)), Val(p(5)), CLng(Val(p(6))))
                 End If
-            Case "AMORTPCT"  ' IPCA amortizante: data, pct-de-VNE (soma=100%)
+            Case "AMORTPCT"
                 If UBound(p) >= 2 Then
                     na = na + 1
                     If na > UBound(aD) Then ReDim Preserve aD(1 To na + 100): ReDim Preserve aP(1 To na + 100)
                     aD(na) = CDbl(ParseISO(p(1))): aP(na) = Val(p(2))
+                End If
+            ' ── formato novo (chave-valor / tabela data) ──────────────────────────
+            Case "CDI"   ' novo: dc, de, vf, pv, du
+                If UBound(p) >= 5 Then
+                    If Not cdiTmp.Exists(p(1)) Then cdiTmp.Add p(1), New Collection
+                    cdiTmp(p(1)).Add Array(ParseISO(p(2)), Val(p(3)), Val(p(4)), CLng(Val(p(5))))
+                End If
+            Case "AMORT"   ' novo amortizacao: data, pct
+                If UBound(p) >= 2 Then
+                    na = na + 1
+                    If na > UBound(aD) Then ReDim Preserve aD(1 To na + 100): ReDim Preserve aP(1 To na + 100)
+                    aD(na) = CDbl(ParseISO(p(1))): aP(na) = Val(p(2))
+                End If
+            Case "DATA"  ' cabecalho da tabela "DATA FLUXO_TAI TIPO" -> ignora
+            Case Else
+                If UBound(p) = 1 Then
+                    ' novo cabecalho chave-valor: "chave<TAB>valor"
+                    Dim chvN As String: chvN = UCase(Trim(p(0)))
+                    If chvN = "INICIO_RENTABILIDADE" Then chvN = "INICIO_RENT"
+                    hdr(chvN) = p(1)
+                    If chvN = "VNA" Then
+                        ' ponto VNA unico ancorado em DATA_FLUXO
+                        Dim dcStr As String: dcStr = ""
+                        If hdr.Exists("DATA_FLUXO") Then dcStr = CStr(hdr("DATA_FLUXO"))
+                        If dcStr <> "" Then
+                            nv = nv + 1
+                            If nv > UBound(vd) Then ReDim Preserve vd(1 To nv + 100): ReDim Preserve vv(1 To nv + 100)
+                            vd(nv) = CDbl(ParseISO(dcStr)): vv(nv) = Val(p(1))
+                        End If
+                    End If
+                ElseIf UBound(p) = 2 Then
+                    ' novo fluxo: "YYYY-MM-DD<TAB>FLUXO_TAI<TAB>TIPO"
+                    If Len(p(0)) = 10 And Mid(p(0), 5, 1) = "-" And Mid(p(0), 8, 1) = "-" Then
+                        nf = nf + 1
+                        Dim evDate As Date: evDate = ParseISO(p(0))
+                        Dim d0Date As Date: d0Date = 0
+                        If hdr.Exists("DATA_FLUXO") Then d0Date = ParseISO(CStr(hdr("DATA_FLUXO")))
+                        fl(nf, 1) = CDbl(evDate)
+                        fl(nf, 2) = p(2)
+                        fl(nf, 3) = 0
+                        fl(nf, 4) = IIf(d0Date > 0, ContaDU(d0Date, evDate), 0)
+                        fl(nf, 5) = 0
+                        fl(nf, 6) = Val(p(1))
+                    End If
                 End If
         End Select
 Prox:
