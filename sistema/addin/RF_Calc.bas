@@ -227,7 +227,7 @@ Private Function CarregarAtivo(ticker As String) As Boolean
                     If na > UBound(aD) Then ReDim Preserve aD(1 To na + 100): ReDim Preserve aP(1 To na + 100)
                     aD(na) = CDbl(ParseISO(p(1))): aP(na) = Val(p(2))
                 End If
-            Case "DATA"  ' cabecalho da tabela "DATA FLUXO_TAI TIPO" -> ignora
+            Case "DATA"  ' cabecalho da tabela "DATA JUROS_TAI AMORT_TAI" -> ignora
             Case Else
                 If UBound(p) = 1 Then
                     ' novo cabecalho chave-valor: "chave<TAB>valor"
@@ -245,18 +245,20 @@ Private Function CarregarAtivo(ticker As String) As Boolean
                         End If
                     End If
                 ElseIf UBound(p) = 2 Then
-                    ' novo fluxo: "YYYY-MM-DD<TAB>FLUXO_TAI<TAB>TIPO"
+                    ' novo fluxo: "YYYY-MM-DD<TAB>JUROS_TAI<TAB>AMORT_TAI"
                     If Len(p(0)) = 10 And Mid(p(0), 5, 1) = "-" And Mid(p(0), 8, 1) = "-" Then
                         nf = nf + 1
                         Dim evDate As Date: evDate = ParseISO(p(0))
                         Dim d0Date As Date: d0Date = 0
                         If hdr.Exists("DATA_FLUXO") Then d0Date = ParseISO(CStr(hdr("DATA_FLUXO")))
+                        Dim jTai As Double: jTai = Val(p(1))
+                        Dim aTai As Double: aTai = Val(p(2))
                         fl(nf, 1) = CDbl(evDate)
-                        fl(nf, 2) = p(2)
+                        fl(nf, 2) = IIf(jTai > 0 And aTai > 0, "J+A", IIf(aTai > 0, "A", "J"))
                         fl(nf, 3) = 0
                         fl(nf, 4) = IIf(d0Date > 0, ContaDU(d0Date, evDate), 0)
                         fl(nf, 5) = 0
-                        fl(nf, 6) = Val(p(1))
+                        fl(nf, 6) = jTai + aTai   ' fc_pct total = soma dos dois
                     End If
                 End If
         End Select

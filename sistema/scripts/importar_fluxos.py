@@ -170,13 +170,18 @@ def importar_ticker(ticker: str, data_calc: str | None = None) -> str:
         path.write_text("\n".join(out), encoding="utf-8")
         return f"OK {ticker}: {len(flows)} fluxos CDI, datas={len(blocos)}, {indexador}"
 
-    # IPCA/PRE: FC% data-independente; combina J+A na mesma data
-    grupos: dict[str, dict] = defaultdict(lambda: {"vf": 0.0, "tipos": set(), "du": 0})
+    # IPCA/PRE: FC% data-independente; separa J e A em colunas distintas
+    grupos: dict[str, dict] = defaultdict(lambda: {"juros": 0.0, "amort": 0.0})
     for f in flows:
         d = _iso(f["date"])
-        grupos[d]["vf"] += float(f["finalValue"])
-        grupos[d]["du"] = int(f["workingDays"])
-        grupos[d]["tipos"].add(str(f["eventType"]))
+        vf_f = float(f["finalValue"])
+        ev = str(f["eventType"])
+        if ev == "J":
+            grupos[d]["juros"] += vf_f
+        elif ev == "A":
+            grupos[d]["amort"] += vf_f
+        else:
+            grupos[d]["juros"] += vf_f  # outros eventos tratados como juros
 
     out = [
         SEP.join(["ticker", ticker]),
@@ -193,14 +198,13 @@ def importar_ticker(ticker: str, data_calc: str | None = None) -> str:
         SEP.join(["vna", f"{vna:.6f}"]),
         SEP.join(["fonte", "B3"]),
         "",
-        SEP.join(["DATA", "FLUXO_TAI", "TIPO"]),
+        SEP.join(["DATA", "JUROS_TAI", "AMORT_TAI"]),
     ]
     for d in sorted(grupos):
         g = grupos[d]
-        fc_pct = g["vf"] / vna
-        ts = g["tipos"]
-        tipo_str = "J+A" if ("J" in ts and "A" in ts) else ("A" if "A" in ts else "J")
-        out.append(SEP.join([d, f"{fc_pct:.10f}", tipo_str]))
+        juros_pct = g["juros"] / vna
+        amort_pct = g["amort"] / vna
+        out.append(SEP.join([d, f"{juros_pct:.10f}", f"{amort_pct:.10f}"]))
 
     # IPCA amortizante: cronograma de amortizacao (% de VNE, soma=100%)
     if indexador == "IPCA":
